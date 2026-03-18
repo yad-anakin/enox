@@ -15,6 +15,22 @@
     font-feature-settings: "rlig" 1, "calt" 1;
     max-width: 100%;
     overflow-x: hidden;
+    min-height: 100%;
+  }
+
+  html {
+    height: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  body > div:first-child,
+  #__next {
+    min-height: 100vh;
+    min-height: 100dvh;
   }
 
   ::-webkit-scrollbar {
