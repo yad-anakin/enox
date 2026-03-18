@@ -518,19 +518,8 @@ export function ChatView() {
   // Empty state (no messages and not loading)
   if (messages.length === 0 && !loadingChat) {
     return (
-      <div
-        className="flex-1 flex flex-col min-h-0"
-        style={{
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-        }}
-      >
-        <div
-          className="flex items-center justify-between px-6 border-b border-white/[0.06] shrink-0"
-          style={{
-            minHeight: 'calc(56px + env(safe-area-inset-top, 0px))',
-            paddingTop: 'env(safe-area-inset-top, 0px)',
-          }}
-        >
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] shrink-0">
           {activeAgent ? (
             <div className="flex items-center gap-2">
               <Bot size={14} className="text-white/40" />
@@ -585,19 +574,8 @@ export function ChatView() {
 
   // Chat with messages
   return (
-    <div
-      className="flex-1 flex flex-col min-h-0"
-      style={{
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-      }}
-    >
-      <div
-        className="flex items-center justify-between px-6 border-b border-white/[0.06] shrink-0"
-        style={{
-          minHeight: 'calc(56px + env(safe-area-inset-top, 0px))',
-          paddingTop: 'env(safe-area-inset-top, 0px)',
-        }}
-      >
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] shrink-0">
         <div className="flex items-center gap-3">
           <ModelSelector />
           {(() => {
