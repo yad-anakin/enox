@@ -5,12 +5,21 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://enox.website'),
   title: 'Enox Admin',
   description: 'Enox AI Platform Admin Dashboard',
   openGraph: {
     title: 'Enox Admin',
     description: 'Enox AI Platform Admin Dashboard',
-    images: ['/enox.png'],
+    url: 'https://enox.website',
+    images: [
+      {
+        url: '/enox.png',
+        width: 1200,
+        height: 630,
+        alt: 'Enox Admin',
+      },
+    ],
   },
   twitter: {
     card: 'summary_large_image',
