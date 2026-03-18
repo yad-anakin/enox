@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { chatAPI } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, RefreshCw, Square, ChevronUp, Bot } from 'lucide-react';
+import { Send, Square, ChevronUp, Bot, Maximize2, Minimize2, Brain } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ModelSelector } from './ModelSelector';
 import { EnoxLogo } from '@/components/common/EnoxLogo';
@@ -19,6 +19,12 @@ const STATUS_TEXTS = [
   'Crafting answer...',
   'Almost there...',
 ];
+
+const INPUT_LINE_HEIGHT = 24;
+const INPUT_TOGGLE_ROWS = 4;
+const INPUT_MAX_ROWS = 5;
+const INPUT_TOGGLE_HEIGHT = INPUT_LINE_HEIGHT * INPUT_TOGGLE_ROWS;
+const INPUT_MAX_HEIGHT = INPUT_LINE_HEIGHT * INPUT_MAX_ROWS;
 
 function StreamingStatus() {
   const [idx, setIdx] = useState(0);
@@ -52,7 +58,7 @@ export function ChatView() {
     messages, setMessages, addMessage, replaceLastAssistantContent,
     isStreaming, setIsStreaming,
     selectedAgentId, agents, chats, setChats,
-    useOwnKeys, setRecentModelId, apiKeys,
+    useOwnKeys, setRecentModelId, apiKeys, think, setThink,
   } = useStore(useShallow((s) => ({
     models: s.models, selectedModelId: s.selectedModelId, setSelectedModelId: s.setSelectedModelId,
     activeChatId: s.activeChatId, setActiveChatId: s.setActiveChatId,
@@ -61,7 +67,7 @@ export function ChatView() {
     isStreaming: s.isStreaming, setIsStreaming: s.setIsStreaming,
     selectedAgentId: s.selectedAgentId, agents: s.agents, chats: s.chats, setChats: s.setChats,
     useOwnKeys: s.useOwnKeys, setRecentModelId: s.setRecentModelId,
-    apiKeys: s.apiKeys,
+    apiKeys: s.apiKeys, think: s.think, setThink: s.setThink,
   })));
 
   // Local streaming content — avoids global store updates every flush cycle
@@ -70,43 +76,77 @@ export function ChatView() {
   const [loadingChat, setLoadingChat] = useState(false);
 
   const [input, setInput] = useState('');
+  const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
+  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
+  const [thinkingDone, setThinkingDone] = useState<number | null>(null);
+  const [thinkingContent, setThinkingContent] = useState('');
+  const lastThinkingTimeRef = useRef<number | null>(null);
+  const lastThinkingContentRef = useRef('');
+  const thinkingContentRef = useRef('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // --- Batched streaming: accumulate chunks in ref, flush to state every 50ms ---
-  const streamBufferRef = useRef('');
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // --- Typewriter streaming: smooth character-by-character reveal like ChatGPT ---
+  const streamBufferRef = useRef('');       // Full accumulated text from backend
+  const displayPosRef = useRef(0);          // How many chars we've rendered so far
+  const animFrameRef = useRef<number | null>(null);
+  const streamActiveRef = useRef(false);
   const lastScrollRef = useRef(0);
 
-  const startStreamFlush = useCallback(() => {
-    if (flushTimerRef.current) return;
-    flushTimerRef.current = setInterval(() => {
-      if (streamBufferRef.current) {
-        setStreamContent(streamBufferRef.current);
+  const startStreamRender = useCallback(() => {
+    streamBufferRef.current = '';
+    displayPosRef.current = 0;
+    streamActiveRef.current = true;
+    if (animFrameRef.current) return;
+
+    const tick = () => {
+      const buf = streamBufferRef.current;
+      const pos = displayPosRef.current;
+
+      if (pos < buf.length) {
+        // Adaptive speed: at least 2 chars/frame, scales with backlog so we never fall behind
+        const backlog = buf.length - pos;
+        const step = Math.max(2, Math.ceil(backlog / 3));
+        const nextPos = Math.min(pos + step, buf.length);
+        displayPosRef.current = nextPos;
+        setStreamContent(buf.slice(0, nextPos));
+
+        // Smooth scroll following (~60fps throttled)
         const now = Date.now();
-        if (now - lastScrollRef.current > 100) {
+        if (now - lastScrollRef.current > 80) {
           lastScrollRef.current = now;
           messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
         }
       }
-    }, 30);
+
+      // Keep running while streaming or buffer not fully drained
+      if (streamActiveRef.current || displayPosRef.current < streamBufferRef.current.length) {
+        animFrameRef.current = requestAnimationFrame(tick);
+      } else {
+        animFrameRef.current = null;
+      }
+    };
+
+    animFrameRef.current = requestAnimationFrame(tick);
   }, []);
 
-  const stopStreamFlush = useCallback(() => {
-    if (flushTimerRef.current) {
-      clearInterval(flushTimerRef.current);
-      flushTimerRef.current = null;
+  const stopStreamRender = useCallback(() => {
+    streamActiveRef.current = false;
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
     }
-    // Final flush — commit to global store once
+    // Commit full text to global store and clear local streaming state
     if (streamBufferRef.current) {
       replaceLastAssistantContent(streamBufferRef.current);
-      streamBufferRef.current = '';
     }
+    streamBufferRef.current = '';
+    displayPosRef.current = 0;
     setStreamContent('');
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [replaceLastAssistantContent]);
@@ -114,7 +154,8 @@ export function ChatView() {
   // Cleanup on unmount — abort in-flight streams to prevent isStreaming getting stuck
   useEffect(() => {
     return () => {
-      if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+      streamActiveRef.current = false;
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (abortRef.current) {
         abortRef.current.abort();
         abortRef.current = null;
@@ -222,12 +263,18 @@ export function ChatView() {
     addMessage({ id: crypto.randomUUID(), role: 'assistant' as const, content: '', created_at: new Date().toISOString() });
     scrollToBottom('smooth');
 
-    // Reset stream buffer and start batched flushing
-    streamBufferRef.current = '';
-    startStreamFlush();
+    // Start typewriter animation loop + reset thinking state
+    startStreamRender();
+    setThinkingStartTime(null);
+    setThinkingDone(null);
+    setThinkingContent('');
+    lastThinkingTimeRef.current = null;
+    lastThinkingContentRef.current = '';
+    thinkingContentRef.current = '';
 
     const controller = new AbortController();
     abortRef.current = controller;
+    const t0 = performance.now();
 
     try {
       const response = await chatAPI.sendMessage({
@@ -236,7 +283,9 @@ export function ChatView() {
         agentId: selectedAgentId,
         message: trimmed,
         useOwnKeys,
+        think,
       });
+      console.log(`[stream] response headers: ${(performance.now() - t0).toFixed(0)}ms`);
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: 'Request failed' }));
@@ -248,10 +297,13 @@ export function ChatView() {
       if (!reader) throw new Error('No reader available');
 
       let buffer = '';
+      let firstData = true;
+      let firstChunk = true;
       while (true) {
         if (controller.signal.aborted) { await reader.cancel(); break; }
         const { done, value } = await reader.read();
         if (done) break;
+        if (firstData) { console.log(`[stream] first data: ${(performance.now() - t0).toFixed(0)}ms`); firstData = false; }
 
         buffer += decoder.decode(value, { stream: true });
         const parts = buffer.split('\n');
@@ -266,7 +318,18 @@ export function ChatView() {
             const parsed = JSON.parse(data);
             if (parsed.type === 'meta' && parsed.chatId) {
               setActiveChatId(parsed.chatId);
+            } else if (parsed.type === 'thinking_start') {
+              setThinkingStartTime(Date.now());
+            } else if (parsed.type === 'thinking_content') {
+              thinkingContentRef.current += parsed.content;
+              setThinkingContent(thinkingContentRef.current);
+            } else if (parsed.type === 'thinking_done') {
+              setThinkingDone(parsed.thinkingTime);
+              setThinkingStartTime(null);
+              lastThinkingTimeRef.current = parsed.thinkingTime;
+              lastThinkingContentRef.current = thinkingContentRef.current;
             } else if (parsed.type === 'chunk') {
+              if (firstChunk) { console.log(`[stream] first token: ${(performance.now() - t0).toFixed(0)}ms`); firstChunk = false; }
               streamBufferRef.current += parsed.content;
             } else if (parsed.type === 'error') {
               streamBufferRef.current += parsed.content || 'An error occurred';
@@ -282,7 +345,7 @@ export function ChatView() {
         streamBufferRef.current += err.message || 'Failed to send message. Please try again.';
       }
     } finally {
-      stopStreamFlush();
+      stopStreamRender();
       abortRef.current = null;
       setIsStreaming(false);
     }
@@ -291,13 +354,79 @@ export function ChatView() {
   const handleStop = () => {
     abortRef.current?.abort();
     abortRef.current = null;
-    stopStreamFlush();
+    stopStreamRender();
     setIsStreaming(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
+
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = '0px';
+    const nextHeight = isInputExpanded
+      ? Math.max(INPUT_LINE_HEIGHT, textarea.scrollHeight)
+      : Math.min(Math.max(INPUT_LINE_HEIGHT, textarea.scrollHeight), INPUT_MAX_HEIGHT);
+
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = isInputExpanded ? 'auto' : textarea.scrollHeight > INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
+  }, [input, isInputExpanded]);
+
+  useEffect(() => {
+    if (!input.trim()) setIsInputExpanded(false);
+  }, [input]);
+
+  const shouldShowExpandToggle = Boolean(inputRef.current && inputRef.current.scrollHeight > INPUT_TOGGLE_HEIGHT);
+
+  const renderComposer = (placeholder: string, disabled = false) => (
+    <div className="rounded-2xl bg-[#1a1a1a] border border-white/[0.08] p-3">
+      <div className="flex items-end gap-2">
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          rows={1}
+          disabled={disabled}
+          className="flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 resize-none outline-none disabled:opacity-50"
+          style={{ minHeight: `${INPUT_LINE_HEIGHT}px`, maxHeight: isInputExpanded ? '50vh' : `${INPUT_MAX_HEIGHT}px` }}
+        />
+        <button
+          onClick={() => setThink(!think)}
+          title={think ? 'Thinking enabled — model will reason before answering' : 'Thinking disabled — model will answer directly'}
+          className={cn(
+            'flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-medium transition-all duration-200 shrink-0',
+            think
+              ? 'bg-white/[0.08] text-white/70 border border-white/[0.12] hover:bg-white/[0.12]'
+              : 'bg-transparent text-white/30 border border-white/[0.06] hover:text-white/50 hover:border-white/[0.1]'
+          )}
+        >
+          <Brain size={14} />
+          <span className="hidden sm:inline">{think ? 'Think' : 'Think'}</span>
+        </button>
+        {isStreaming ? (
+          <button onClick={handleStop} className="p-2 rounded-xl bg-white/10 text-white/70 hover:bg-white/20 transition-all duration-200"><Square size={16} /></button>
+        ) : (
+          <button onClick={handleSend} disabled={!input.trim() || !selectedModelId || disabled} className={cn('p-2 rounded-xl transition-all duration-200', input.trim() && selectedModelId && !disabled ? 'bg-white text-black hover:bg-white/90' : 'bg-white/5 text-white/20')}><Send size={16} /></button>
+        )}
+      </div>
+      {(shouldShowExpandToggle || isInputExpanded) && (
+        <div className="mt-2 flex justify-end">
+          <button
+            onClick={() => setIsInputExpanded((prev) => !prev)}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-white/35 transition-colors hover:bg-white/5 hover:text-white/70"
+          >
+            {isInputExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+            {isInputExpanded ? 'Collapse' : 'Expand'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   const handleRegenerate = async () => {
     if (!activeChatId || isStreaming) return;
@@ -311,15 +440,20 @@ export function ChatView() {
 
     addMessage({ id: crypto.randomUUID(), role: 'assistant', content: '', created_at: new Date().toISOString() });
 
-    // Reset stream buffer and start batched flushing
-    streamBufferRef.current = '';
-    startStreamFlush();
+    // Start typewriter animation loop + reset thinking state
+    startStreamRender();
+    setThinkingStartTime(null);
+    setThinkingDone(null);
+    setThinkingContent('');
+    lastThinkingTimeRef.current = null;
+    lastThinkingContentRef.current = '';
+    thinkingContentRef.current = '';
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const response = await chatAPI.regenerate(activeChatId, { useOwnKeys });
+      const response = await chatAPI.regenerate(activeChatId, { useOwnKeys, think });
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: 'Request failed' }));
         throw new Error(err.error || `Server error ${response.status}`);
@@ -344,8 +478,21 @@ export function ChatView() {
           if (data === '[DONE]') continue;
           try {
             const parsed = JSON.parse(data);
-            if (parsed.type === 'chunk') streamBufferRef.current += parsed.content;
-            else if (parsed.type === 'error') streamBufferRef.current += parsed.content || 'An error occurred';
+            if (parsed.type === 'thinking_start') {
+              setThinkingStartTime(Date.now());
+            } else if (parsed.type === 'thinking_content') {
+              thinkingContentRef.current += parsed.content;
+              setThinkingContent(thinkingContentRef.current);
+            } else if (parsed.type === 'thinking_done') {
+              setThinkingDone(parsed.thinkingTime);
+              setThinkingStartTime(null);
+              lastThinkingTimeRef.current = parsed.thinkingTime;
+              lastThinkingContentRef.current = thinkingContentRef.current;
+            } else if (parsed.type === 'chunk') {
+              streamBufferRef.current += parsed.content;
+            } else if (parsed.type === 'error') {
+              streamBufferRef.current += parsed.content || 'An error occurred';
+            }
           } catch {}
         }
       }
@@ -355,7 +502,7 @@ export function ChatView() {
         streamBufferRef.current += err.message || 'Failed to regenerate.';
       }
     } finally {
-      stopStreamFlush();
+      stopStreamRender();
       abortRef.current = null;
       setIsStreaming(false);
     }
@@ -418,10 +565,7 @@ export function ChatView() {
         </div>
         <div className="p-4 border-t border-white/[0.06]">
           <div className="max-w-3xl mx-auto">
-            <div className="rounded-2xl bg-[#1a1a1a] border border-white/[0.08] flex items-end gap-2 p-3">
-              <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder={activeAgent ? `Ask ${activeAgent.name}...` : 'Type a message...'} rows={1} className="flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 resize-none outline-none max-h-32" style={{ minHeight: '24px' }} />
-              <button onClick={handleSend} disabled={!input.trim() || !selectedModelId} className={cn('p-2 rounded-xl transition-all duration-200', input.trim() && selectedModelId ? 'bg-white text-black hover:bg-white/90' : 'bg-white/5 text-white/20')}><Send size={16} /></button>
-            </div>
+            {renderComposer(activeAgent ? `Ask ${activeAgent.name}...` : 'Type a message...')}
           </div>
         </div>
       </div>
@@ -449,12 +593,6 @@ export function ChatView() {
             );
           })()}
         </div>
-        {activeChatId && !isStreaming && (
-          <button onClick={handleRegenerate} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-white/40 hover:text-white/70 hover:bg-white/5 transition-all">
-            <RefreshCw size={14} />
-            Regenerate
-          </button>
-        )}
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
@@ -487,10 +625,18 @@ export function ChatView() {
             {messages.map((msg, idx) => {
               const isStreamingMsg = isStreaming && idx === messages.length - 1 && msg.role === 'assistant';
               const displayMsg = isStreamingMsg && streamContent ? { ...msg, content: streamContent } : msg;
+              const isLatestAssistantMessage = msg.role === 'assistant' && idx === messages.length - 1;
               return (
                 <div key={msg.id || idx}>
                   {isStreamingMsg && <StreamingStatus />}
-                  <MessageBubble message={displayMsg} isStreaming={isStreamingMsg} />
+                  <MessageBubble
+                    message={displayMsg}
+                    isStreaming={isStreamingMsg}
+                    thinkingStartTime={isStreamingMsg ? thinkingStartTime : null}
+                    thinkingDone={isStreamingMsg ? thinkingDone : (isLatestAssistantMessage ? lastThinkingTimeRef.current : null)}
+                    thinkingContent={isStreamingMsg ? thinkingContent : (isLatestAssistantMessage ? lastThinkingContentRef.current : '')}
+                    onRegenerate={activeChatId && !isStreaming && isLatestAssistantMessage ? handleRegenerate : undefined}
+                  />
                 </div>
               );
             })}
@@ -501,14 +647,7 @@ export function ChatView() {
 
       <div className="p-4 border-t border-white/[0.06] shrink-0">
         <div className="max-w-3xl mx-auto">
-          <div className="rounded-2xl bg-[#1a1a1a] border border-white/[0.08] flex items-end gap-2 p-3">
-            <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Type a message..." rows={1} disabled={isStreaming} className="flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 resize-none outline-none max-h-32 disabled:opacity-50" style={{ minHeight: '24px' }} />
-            {isStreaming ? (
-              <button onClick={handleStop} className="p-2 rounded-xl bg-white/10 text-white/70 hover:bg-white/20 transition-all duration-200"><Square size={16} /></button>
-            ) : (
-              <button onClick={handleSend} disabled={!input.trim() || !selectedModelId} className={cn('p-2 rounded-xl transition-all duration-200', input.trim() && selectedModelId ? 'bg-white text-black hover:bg-white/90' : 'bg-white/5 text-white/20')}><Send size={16} /></button>
-            )}
-          </div>
+          {renderComposer('Type a message...', isStreaming)}
         </div>
       </div>
     </div>

@@ -54,6 +54,7 @@ export const chatAPI = {
     agentId?: string | null;
     message: string;
     useOwnKeys?: boolean;
+    think?: boolean;
   }) => {
     const headers = await getAuthHeaders();
     return fetch(`${API_URL}/api/chat/send`, {
@@ -73,7 +74,7 @@ export const chatAPI = {
 
   deleteChat: (chatId: string) => fetchAPI(`/api/chat/${chatId}`, { method: 'DELETE' }),
 
-  regenerate: async (chatId: string, body?: { useOwnKeys?: boolean }) => {
+  regenerate: async (chatId: string, body?: { useOwnKeys?: boolean; think?: boolean }) => {
     const headers = await getAuthHeaders();
     return fetch(`${API_URL}/api/chat/${chatId}/regenerate`, {
       method: 'POST',

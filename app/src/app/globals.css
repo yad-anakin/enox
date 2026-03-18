@@ -5,12 +5,16 @@
 @layer base {
   * {
     border-color: rgba(255, 255, 255, 0.08);
+    min-width: 0;
   }
 
+  html,
   body {
     background: #000000;
     color: #ffffff;
     font-feature-settings: "rlig" 1, "calt" 1;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 
   ::-webkit-scrollbar {

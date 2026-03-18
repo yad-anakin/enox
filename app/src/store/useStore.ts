@@ -109,6 +109,8 @@ interface AppState {
   // Preferences
   useOwnKeys: boolean;
   setUseOwnKeys: (val: boolean) => void;
+  think: boolean;
+  setThink: (val: boolean) => void;
 
   // Model favorites
   pinnedModelIds: string[];
@@ -181,6 +183,11 @@ export const useStore = create<AppState>((set) => ({
   setUseOwnKeys: (useOwnKeys) => {
     if (typeof window !== 'undefined') localStorage.setItem('enox_useOwnKeys', String(useOwnKeys));
     set({ useOwnKeys });
+  },
+  think: typeof window !== 'undefined' ? localStorage.getItem('enox_think') !== 'false' : true,
+  setThink: (think) => {
+    if (typeof window !== 'undefined') localStorage.setItem('enox_think', String(think));
+    set({ think });
   },
 
   // Model favorites — load from localStorage
