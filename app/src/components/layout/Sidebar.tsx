@@ -136,11 +136,15 @@ export function Sidebar() {
         )}
       </AnimatePresence>
       <motion.aside
-        className="fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-white/[0.08] bg-black"
+        className="fixed left-0 top-0 z-40 flex h-screen min-h-screen flex-col border-r border-white/[0.08] bg-black supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:min-h-[100dvh]"
         animate={isMobile ? { width: 280, x: sidebarOpen ? 0 : -280 } : { width: sidebarOpen ? 280 : 72, x: 0 }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
+        style={{
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        }}
       >
-      <div className="flex items-center justify-between p-4 h-16">
+      <div className="flex h-16 shrink-0 items-center justify-between p-4">
         <AnimatePresence>
           {sidebarOpen && (
             <motion.div
@@ -164,7 +168,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      <div className="px-3 mb-2">
+      <div className="px-3 mb-2 shrink-0">
         <button
           onClick={handleNewChat}
           className={cn(
@@ -178,7 +182,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      <nav className="px-3 space-y-1 mb-4">
+      <nav className="px-3 space-y-1 mb-4 shrink-0">
         {navItems.map(item => (
           <button
             key={item.path}
@@ -204,7 +208,7 @@ export function Sidebar() {
       </nav>
 
       {sidebarOpen && (
-        <div className="flex-1 overflow-y-auto px-3 space-y-4">
+        <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-4 min-h-0">
           {/* Agents section (max 2) */}
           {agents.length > 0 && (
             <div>
@@ -293,7 +297,7 @@ export function Sidebar() {
         </div>
       )}
 
-      <div className="relative p-3 border-t border-white/[0.06]">
+      <div className="relative shrink-0 border-t border-white/[0.06] p-3">
         <AnimatePresence>
           {sidebarOpen && profileMenuOpen && (
             <motion.div

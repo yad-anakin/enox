@@ -519,7 +519,7 @@ export function ChatView() {
   if (messages.length === 0 && !loadingChat) {
     return (
       <div
-        className="flex-1 flex flex-col"
+        className="flex-1 flex flex-col min-h-0"
         style={{
           paddingTop: 'env(safe-area-inset-top, 0px)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -538,7 +538,7 @@ export function ChatView() {
             <ModelSelector />
           )}
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center gap-6 px-4">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-6 px-4">
           {activeAgent ? (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }} className="flex flex-col items-center gap-4 max-w-md text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.04] border border-white/[0.06]">
@@ -607,7 +607,7 @@ export function ChatView() {
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 min-h-0">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 min-h-0 overscroll-contain">
         {loadingChat ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-3">
