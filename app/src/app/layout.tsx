@@ -6,7 +6,18 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
   title: 'Enox AI',
-  description: 'Premium AI Platform',
+  description: "Your premium gateway to the world's leading AI models.",
+  openGraph: {
+    title: 'Enox AI',
+    description: "Your premium gateway to the world's leading AI models.",
+    images: ['/enox.png'],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Enox AI',
+    description: "Your premium gateway to the world's leading AI models.",
+    images: ['/enox.png'],
+  },
 };
 
 export const viewport: Viewport = {

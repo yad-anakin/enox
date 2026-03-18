@@ -7,6 +7,17 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 export const metadata: Metadata = {
   title: 'Enox Admin',
   description: 'Enox AI Platform Admin Dashboard',
+  openGraph: {
+    title: 'Enox Admin',
+    description: 'Enox AI Platform Admin Dashboard',
+    images: ['/enox.png'],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Enox Admin',
+    description: 'Enox AI Platform Admin Dashboard',
+    images: ['/enox.png'],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
