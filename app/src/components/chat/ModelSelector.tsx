@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { ChevronDown, PanelLeft, Grid2X2, Clock } from 'lucide-react';
+import { ChevronDown, Grid2X2, Clock, PanelLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 const PROVIDER_DOTS: Record<string, string> = {
@@ -76,12 +76,11 @@ export function ModelSelector() {
     <div className="flex items-center gap-2">
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] text-white/50 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+        className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
       >
-        <PanelLeft size={14} />
+        <PanelLeft size={18} />
       </button>
 
-      {/* Dropdown */}
       <div className="relative" ref={dropdownRef}>
         <button
           onClick={() => setOpen(!open)}

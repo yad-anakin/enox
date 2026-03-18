@@ -3,12 +3,12 @@
 import { useStore } from '@/store/useStore';
 import { agentsAPI } from '@/lib/api';
 import { motion } from 'framer-motion';
-import { Plus, Bot, Globe, Lock, Pencil, Trash2, MessageSquare } from 'lucide-react';
+import { Plus, Bot, Globe, Lock, Pencil, Trash2, MessageSquare, PanelLeft } from 'lucide-react';
 import type { Agent } from '@/store/useStore';
 import { useRouter } from 'next/navigation';
 
 export function AgentsView() {
-  const { agents, setAgents, setSelectedAgentId, setSelectedModelId, setActiveChatId, setMessages } = useStore();
+  const { agents, setAgents, setSelectedAgentId, setSelectedModelId, setActiveChatId, setMessages, sidebarOpen, setSidebarOpen } = useStore();
   const router = useRouter();
 
   const handleDelete = async (id: string) => {
@@ -31,8 +31,16 @@ export function AgentsView() {
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
-      <div className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] shrink-0">
-        <h1 className="text-lg font-semibold text-white/90">My Agents</h1>
+      <div className="h-16 pt-2 flex items-center justify-between px-6 border-b border-white/[0.06] shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+          >
+            <PanelLeft size={18} />
+          </button>
+          <h1 className="text-lg font-semibold text-white/90">My Agents</h1>
+        </div>
         <button
           onClick={() => router.push('/agents/studio')}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-black text-sm font-medium hover:bg-white/90 transition-all active:scale-[0.98]"

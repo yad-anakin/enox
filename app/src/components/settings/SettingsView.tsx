@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { usersAPI } from '@/lib/api';
 import { motion } from 'framer-motion';
-import { User, BarChart3, Cpu, KeyRound, ShieldCheck, ArrowRight, ToggleLeft, ToggleRight, CheckCircle2, MessageSquare, Bot } from 'lucide-react';
+import { User, BarChart3, Cpu, KeyRound, ShieldCheck, ArrowRight, ToggleLeft, ToggleRight, CheckCircle2, MessageSquare, Bot, PanelLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 
 export function SettingsView() {
-  const { user, setUser, useOwnKeys, setUseOwnKeys, usage, apiKeys, setUsage, setApiKeys, chats } = useStore();
+  const { user, setUser, useOwnKeys, setUseOwnKeys, usage, apiKeys, setUsage, setApiKeys, chats, sidebarOpen, setSidebarOpen } = useStore();
   const router = useRouter();
   const [name, setName] = useState(user?.name || '');
   const [saving, setSaving] = useState(false);
@@ -49,6 +49,12 @@ export function SettingsView() {
           className="glass rounded-2xl p-6 md:p-8"
         >
           <div className="mb-4 flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+            >
+              <PanelLeft size={18} />
+            </button>
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.06]">
               <ShieldCheck size={20} className="text-white/70" />
             </div>

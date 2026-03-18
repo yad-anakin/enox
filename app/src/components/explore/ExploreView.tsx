@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 import { agentsAPI } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 import { motion } from 'framer-motion';
-import { Bot, Globe, MessageSquare, Search, Sparkles } from 'lucide-react';
+import { Bot, Globe, MessageSquare, Search, Sparkles, PanelLeft } from 'lucide-react';
 import type { Agent } from '@/store/useStore';
 import { useRouter } from 'next/navigation';
 
 export function ExploreView() {
-  const { setSelectedAgentId, setSelectedModelId, setActiveChatId, setMessages } = useStore();
+  const { setSelectedAgentId, setSelectedModelId, setActiveChatId, setMessages, sidebarOpen, setSidebarOpen } = useStore();
   const router = useRouter();
   const [publicAgents, setPublicAgents] = useState<Agent[]>([]);
   const [search, setSearch] = useState('');
@@ -48,9 +48,17 @@ export function ExploreView() {
       <div className="px-6 py-6 border-b border-white/[0.06] shrink-0 bg-gradient-to-b from-white/[0.02] to-transparent">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-medium text-cyan-300">
-              <Sparkles size={12} />
-              Community agents
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+              >
+                <PanelLeft size={18} />
+              </button>
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-medium text-cyan-300">
+                <Sparkles size={12} />
+                Community agents
+              </div>
             </div>
             <h1 className="text-2xl font-semibold tracking-tight text-white">Explore Agents</h1>
             <p className="mt-1 text-sm text-white/45">Discover polished public agents with clearer descriptions, models, and one-click chat.</p>

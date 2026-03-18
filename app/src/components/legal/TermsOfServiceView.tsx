@@ -1,7 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ScrollText, Shield, Bot, Gauge, Ban } from 'lucide-react';
+import { ScrollText, Shield, Bot, Gauge, Ban, PanelLeft } from 'lucide-react';
+import { useStore } from '@/store/useStore';
 
 const sections = [
   {
@@ -32,11 +33,19 @@ const sections = [
 ];
 
 export function TermsOfServiceView() {
+  const { sidebarOpen, setSidebarOpen } = useStore();
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-8">
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-2xl p-6 md:p-8">
           <div className="mb-4 flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+            >
+              <PanelLeft size={18} />
+            </button>
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.06]">
               <ScrollText size={20} className="text-white/70" />
             </div>

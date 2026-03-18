@@ -96,6 +96,14 @@
   .animate-shimmer {
     animation: shimmer 1.8s ease-in-out infinite;
   }
+
+  /* iOS Safe Area Inset utilities */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
 @keyframes shimmer {

@@ -7,7 +7,7 @@ import { useStore } from '@/store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, Send, Square } from 'lucide-react';
+import { Bot, Send, Square, PanelLeft } from 'lucide-react';
 import { EnoxLogo } from '@/components/common/EnoxLogo';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 
@@ -52,7 +52,7 @@ export default function AgentChatPage() {
     messages, setMessages, addMessage, replaceLastAssistantContent,
     isStreaming, setIsStreaming,
     setSelectedAgentId, setSelectedModelId,
-    useOwnKeys, chats, setChats, apiKeys,
+    useOwnKeys, chats, setChats, apiKeys, sidebarOpen, setSidebarOpen,
   } = useStore(useShallow((s) => ({
     activeChatId: s.activeChatId, setActiveChatId: s.setActiveChatId,
     messages: s.messages, setMessages: s.setMessages, addMessage: s.addMessage,
@@ -60,7 +60,7 @@ export default function AgentChatPage() {
     isStreaming: s.isStreaming, setIsStreaming: s.setIsStreaming,
     setSelectedAgentId: s.setSelectedAgentId, setSelectedModelId: s.setSelectedModelId,
     useOwnKeys: s.useOwnKeys, chats: s.chats, setChats: s.setChats,
-    apiKeys: s.apiKeys,
+    apiKeys: s.apiKeys, sidebarOpen: s.sidebarOpen, setSidebarOpen: s.setSidebarOpen,
   })));
 
   // Local streaming content — avoids global store updates every flush cycle
@@ -313,6 +313,12 @@ export default function AgentChatPage() {
     return (
       <div className="flex-1 flex flex-col">
         <div className="h-14 flex items-center px-6 border-b border-white/[0.06] gap-2">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+          >
+            <PanelLeft size={18} />
+          </button>
           <Bot size={14} className="text-white/40" />
           <span className="text-sm text-white/60">{agent.name}</span>
           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-white/30">
@@ -347,6 +353,12 @@ export default function AgentChatPage() {
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="h-14 flex items-center px-6 border-b border-white/[0.06] gap-2 shrink-0">
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+        >
+          <PanelLeft size={18} />
+        </button>
         <Bot size={14} className="text-white/40" />
         <span className="text-sm text-white/60">{agent?.name || 'Agent'}</span>
         {agent?.creator?.name && (

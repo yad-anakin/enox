@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BarChart3, ArrowLeft, Cpu, TrendingUp, Zap, Key, Building2 } from 'lucide-react';
+import { BarChart3, ArrowLeft, Cpu, TrendingUp, Zap, Key, Building2, PanelLeft } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { useRouter } from 'next/navigation';
 
@@ -20,7 +20,7 @@ function getColor(provider: string) {
 
 export function UsageAnalyticsView() {
   const router = useRouter();
-  const { usage } = useStore();
+  const { usage, sidebarOpen, setSidebarOpen } = useStore();
 
   const totalRequests = usage.reduce((sum, u) => sum + (u.total_used ?? ((u.platform_used || 0) + (u.own_key_used || 0))), 0);
   const totalLimit = usage.reduce((sum, u) => sum + u.limit, 0);
@@ -39,6 +39,12 @@ export function UsageAnalyticsView() {
           className="overflow-hidden rounded-[28px] border border-white/[0.08] bg-gradient-to-br from-[#151515] via-[#101010] to-[#0b0b0b] p-6 md:p-8"
         >
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] transition-colors md:hidden shrink-0"
+            >
+              <PanelLeft size={18} className="text-white/60" />
+            </button>
             <button
               onClick={() => router.push('/settings')}
               className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08] transition-colors"

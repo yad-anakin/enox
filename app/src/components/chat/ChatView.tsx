@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { chatAPI } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Square, ChevronUp, Bot, Maximize2, Minimize2, Brain } from 'lucide-react';
+import { Send, Square, ChevronUp, Bot, Maximize2, Minimize2, Brain, PanelLeft } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ModelSelector } from './ModelSelector';
 import { EnoxLogo } from '@/components/common/EnoxLogo';
@@ -58,7 +58,7 @@ export function ChatView() {
     messages, setMessages, addMessage, replaceLastAssistantContent,
     isStreaming, setIsStreaming,
     selectedAgentId, agents, chats, setChats,
-    useOwnKeys, setRecentModelId, apiKeys, think, setThink,
+    useOwnKeys, setRecentModelId, apiKeys, think, setThink, sidebarOpen, setSidebarOpen,
   } = useStore(useShallow((s) => ({
     models: s.models, selectedModelId: s.selectedModelId, setSelectedModelId: s.setSelectedModelId,
     activeChatId: s.activeChatId, setActiveChatId: s.setActiveChatId,
@@ -67,7 +67,7 @@ export function ChatView() {
     isStreaming: s.isStreaming, setIsStreaming: s.setIsStreaming,
     selectedAgentId: s.selectedAgentId, agents: s.agents, chats: s.chats, setChats: s.setChats,
     useOwnKeys: s.useOwnKeys, setRecentModelId: s.setRecentModelId,
-    apiKeys: s.apiKeys, think: s.think, setThink: s.setThink,
+    apiKeys: s.apiKeys, think: s.think, setThink: s.setThink, sidebarOpen: s.sidebarOpen, setSidebarOpen: s.setSidebarOpen,
   })));
 
   // Local streaming content — avoids global store updates every flush cycle
@@ -521,7 +521,13 @@ export function ChatView() {
       <div className="flex-1 flex flex-col min-h-0">
         <div className="h-14 flex items-center justify-between px-6 border-b border-white/[0.06] shrink-0">
           {activeAgent ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-white/55 transition-all hover:bg-white/[0.06] md:hidden shrink-0"
+              >
+                <PanelLeft size={18} />
+              </button>
               <Bot size={14} className="text-white/40" />
               <span className="text-sm text-white/60">{activeAgent.name}</span>
               <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-white/30">
