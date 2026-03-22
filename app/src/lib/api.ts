@@ -55,6 +55,9 @@ export const chatAPI = {
     message: string;
     useOwnKeys?: boolean;
     think?: boolean;
+    attachments?: { type: string; mimeType: string; data: string; name?: string }[];
+    ttsVoice?: string;
+    conversationHistory?: { role: string; content: string }[];
   }) => {
     const headers = await getAuthHeaders();
     return fetch(`${API_URL}/api/chat/send`, {
@@ -74,7 +77,7 @@ export const chatAPI = {
 
   deleteChat: (chatId: string) => fetchAPI(`/api/chat/${chatId}`, { method: 'DELETE' }),
 
-  regenerate: async (chatId: string, body?: { useOwnKeys?: boolean; think?: boolean }) => {
+  regenerate: async (chatId: string, body?: { useOwnKeys?: boolean; think?: boolean; ttsVoice?: string }) => {
     const headers = await getAuthHeaders();
     return fetch(`${API_URL}/api/chat/${chatId}/regenerate`, {
       method: 'POST',
@@ -124,6 +127,32 @@ export const agentsAPI = {
     if (!res.ok) throw new Error('Agent not found');
     return res.json();
   },
+};
+
+// Generate API (image, TTS, video)
+export const generateAPI = {
+  image: (body: {
+    modelId: string;
+    prompt: string;
+    useOwnKeys?: boolean;
+    count?: number;
+    aspectRatio?: string;
+    size?: string;
+  }) => fetchAPI('/api/generate/image', { method: 'POST', body: JSON.stringify(body) }),
+
+  tts: (body: {
+    modelId: string;
+    text: string;
+    useOwnKeys?: boolean;
+    voice?: string;
+  }) => fetchAPI('/api/generate/tts', { method: 'POST', body: JSON.stringify(body) }),
+
+  video: (body: {
+    modelId: string;
+    prompt: string;
+    useOwnKeys?: boolean;
+    aspectRatio?: string;
+  }) => fetchAPI('/api/generate/video', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // Users API

@@ -3,8 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { ChevronDown, Grid2X2, Clock, PanelLeft } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { ChevronDown, PanelLeft, Clock, Pin, Zap, Grid2X2 } from 'lucide-react';
 
 const PROVIDER_DOTS: Record<string, string> = {
   openai: 'bg-green-400',
@@ -21,7 +20,6 @@ export function ModelSelector() {
     sidebarOpen, setSidebarOpen,
     pinnedModelIds, recentModelId, setRecentModelId,
   } = useStore();
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -37,33 +35,30 @@ export function ModelSelector() {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Build dropdown list: recent (if exists) + 3 pinned/latest
+  // Build dropdown sections: recent, pinned, latest
   const dropdownModels = useMemo(() => {
-    const ids = new Set<string>();
-    const pinned: typeof models = [];
-    let recent: (typeof models)[0] | null = null;
-
-    // Recent model (separate section)
-    if (recentModelId) {
-      const m = models.find((mod) => mod.id === recentModelId);
-      if (m) { recent = m; ids.add(m.id); }
-    }
-
+    const recent: typeof models[0] | null = recentModelId ? models.find(m => m.id === recentModelId) || null : null;
+    
     // Pinned models (max 3)
+    const pinned: typeof models = [];
+    const pinnedIds = new Set<string>();
     for (const id of pinnedModelIds.slice(0, 3)) {
-      const m = models.find((mod) => mod.id === id);
-      if (m && !ids.has(m.id)) { ids.add(m.id); pinned.push(m); }
-    }
-
-    // Fill to 3 with latest
-    if (pinned.length < 3) {
-      for (const m of models) {
-        if (pinned.length >= 3) break;
-        if (!ids.has(m.id)) { ids.add(m.id); pinned.push(m); }
+      const m = models.find(mod => mod.id === id);
+      if (m && !pinnedIds.has(m.id)) {
+        pinnedIds.add(m.id);
+        pinned.push(m);
       }
     }
-
-    return { recent, pinned };
+    
+    // Latest models (up to 5, excluding recent and pinned)
+    const latest: typeof models = [];
+    for (const m of models) {
+      if (latest.length >= 5) break;
+      if (m.id === recent?.id || pinnedIds.has(m.id)) continue;
+      latest.push(m);
+    }
+    
+    return { recent, pinned, latest };
   }, [models, pinnedModelIds, recentModelId]);
 
   const handleSelect = (id: string) => {
@@ -90,12 +85,17 @@ export function ModelSelector() {
           <span className="text-[12px] text-white/70 max-w-[140px] truncate">
             {selectedModel?.name || 'Select model'}
           </span>
+          {selectedModel && TYPE_BADGES[selectedModel.model_type] && (
+            <span className={cn('text-[7px] px-1 rounded font-semibold', TYPE_BADGES[selectedModel.model_type].cls)}>
+              {TYPE_BADGES[selectedModel.model_type].label}
+            </span>
+          )}
           <ChevronDown size={12} className={cn('text-white/25 transition-transform', open && 'rotate-180')} />
         </button>
 
         {open && (
-          <div className="absolute top-full left-0 mt-1.5 z-50 w-56 rounded-xl border border-white/[0.08] bg-[#0a0a0a] overflow-hidden">
-            {/* Recent */}
+          <div className="absolute top-full left-0 mt-1.5 z-50 w-64 rounded-xl border border-white/[0.08] bg-[#0a0a0a] overflow-hidden shadow-xl shadow-black/40">
+            {/* Recent model */}
             {dropdownModels.recent && (
               <>
                 <div className="px-3 pt-2.5 pb-1">
@@ -114,26 +114,58 @@ export function ModelSelector() {
               </>
             )}
 
-            {/* Pinned / Default */}
-            <div className="px-1.5 pb-1.5 pt-0.5">
-              {dropdownModels.pinned.map((m) => (
-                <ModelRow
-                  key={m.id}
-                  model={m}
-                  isSelected={selectedModelId === m.id}
-                  onSelect={handleSelect}
-                />
-              ))}
-            </div>
+            {/* Pinned models */}
+            {dropdownModels.pinned.length > 0 && (
+              <>
+                <div className="px-3 pt-1 pb-1">
+                  <span className="text-[9px] uppercase tracking-widest text-white/20 flex items-center gap-1">
+                    <Pin size={8} /> Pinned
+                  </span>
+                </div>
+                <div className="px-1.5 pb-1">
+                  {dropdownModels.pinned.map((m) => (
+                    <ModelRow
+                      key={m.id}
+                      model={m}
+                      isSelected={selectedModelId === m.id}
+                      onSelect={handleSelect}
+                    />
+                  ))}
+                </div>
+                <div className="mx-3 my-1 border-t border-white/[0.04]" />
+              </>
+            )}
 
-            {/* All models link */}
-            <div className="border-t border-white/[0.04]">
+            {/* Latest models */}
+            {dropdownModels.latest.length > 0 && (
+              <>
+                <div className="px-3 pt-1 pb-1">
+                  <span className="text-[9px] uppercase tracking-widest text-white/20 flex items-center gap-1">
+                    <Zap size={8} /> Latest
+                  </span>
+                </div>
+                <div className="px-1.5 pb-1">
+                  {dropdownModels.latest.map((m) => (
+                    <ModelRow
+                      key={m.id}
+                      model={m}
+                      isSelected={selectedModelId === m.id}
+                      onSelect={handleSelect}
+                    />
+                  ))}
+                </div>
+                <div className="mx-3 my-1 border-t border-white/[0.04]" />
+              </>
+            )}
+
+            {/* View all models link */}
+            <div>
               <button
-                onClick={() => { setOpen(false); router.push('/models'); }}
+                onClick={() => { setOpen(false); window.location.href = '/models'; }}
                 className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] text-white/25 hover:text-white/50 hover:bg-white/[0.03] transition-all"
               >
                 <Grid2X2 size={10} />
-                All Models
+                View All Models
               </button>
             </div>
           </div>
@@ -143,11 +175,18 @@ export function ModelSelector() {
   );
 }
 
+const TYPE_BADGES: Record<string, { label: string; cls: string }> = {
+  image: { label: 'IMG', cls: 'bg-purple-500/15 text-purple-400/70' },
+  video: { label: 'VID', cls: 'bg-amber-500/15 text-amber-400/70' },
+  tts: { label: 'TTS', cls: 'bg-emerald-500/15 text-emerald-400/70' },
+};
+
 function ModelRow({ model, isSelected, onSelect }: {
-  model: { id: string; name: string; provider: string };
+  model: { id: string; name: string; provider: string; model_type?: string };
   isSelected: boolean;
   onSelect: (id: string) => void;
 }) {
+  const badge = TYPE_BADGES[model.model_type || ''];
   return (
     <button
       onClick={() => onSelect(model.id)}
@@ -160,7 +199,10 @@ function ModelRow({ model, isSelected, onSelect }: {
     >
       <div className={cn('h-1.5 w-1.5 rounded-full shrink-0', PROVIDER_DOTS[model.provider] || 'bg-white/30')} />
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium truncate">{model.name}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-[11px] font-medium truncate">{model.name}</p>
+          {badge && <span className={cn('text-[8px] px-1 py-0 rounded font-medium', badge.cls)}>{badge.label}</span>}
+        </div>
         <p className="text-[9px] text-white/20 capitalize">{model.provider}</p>
       </div>
     </button>

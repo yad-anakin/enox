@@ -26,6 +26,7 @@ interface AdminModel {
   api_key: string;
   daily_limit: number;
   is_active: boolean;
+  model_type: 'text' | 'image' | 'video' | 'tts';
   created_at: string;
 }
 
@@ -80,7 +81,7 @@ export default function AdminPage() {
   const [showModelForm, setShowModelForm] = useState(false);
   const [editingModel, setEditingModel] = useState<AdminModel | null>(null);
   const [modelForm, setModelForm] = useState({
-    name: '', provider: 'openai', model_id: '', api_key: '', daily_limit: 25, is_active: true,
+    name: '', provider: 'openai', model_id: '', api_key: '', daily_limit: 25, is_active: true, model_type: 'text' as 'text' | 'image' | 'video' | 'tts',
   });
   const [formLoading, setFormLoading] = useState(false);
   const [showUserLimitsModal, setShowUserLimitsModal] = useState(false);
@@ -159,7 +160,7 @@ export default function AdminPage() {
 
   // Model CRUD
   const resetModelForm = () => {
-    setModelForm({ name: '', provider: 'openai', model_id: '', api_key: '', daily_limit: 25, is_active: true });
+    setModelForm({ name: '', provider: 'openai', model_id: '', api_key: '', daily_limit: 25, is_active: true, model_type: 'text' });
     setShowModelForm(false);
     setEditingModel(null);
   };
@@ -210,6 +211,7 @@ export default function AdminPage() {
       api_key: '',
       daily_limit: model.daily_limit,
       is_active: model.is_active,
+      model_type: model.model_type || 'text',
     });
     setShowModelForm(true);
   };
@@ -476,9 +478,9 @@ export default function AdminPage() {
                     <thead>
                       <tr className="border-b border-white/[0.06]">
                         <th className="text-left text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">Name</th>
+                        <th className="text-left text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">Type</th>
                         <th className="text-left text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">Provider</th>
                         <th className="text-left text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">Model ID</th>
-                        <th className="text-left text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">API Key</th>
                         <th className="text-left text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">Requests / Month</th>
                         <th className="text-left text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">Status</th>
                         <th className="text-right text-[11px] uppercase tracking-wider text-white/30 px-5 py-3">Actions</th>
@@ -488,9 +490,19 @@ export default function AdminPage() {
                       {models.map(model => (
                         <tr key={model.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                           <td className="px-5 py-3 text-sm text-white/80 font-medium">{model.name}</td>
+                          <td className="px-5 py-3">
+                            <span className={cn(
+                              'text-[10px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wider',
+                              (model.model_type || 'text') === 'text' ? 'bg-blue-500/10 text-blue-400'
+                                : model.model_type === 'image' ? 'bg-purple-500/10 text-purple-400'
+                                : model.model_type === 'video' ? 'bg-amber-500/10 text-amber-400'
+                                : 'bg-emerald-500/10 text-emerald-400'
+                            )}>
+                              {model.model_type === 'tts' ? 'TTS' : (model.model_type || 'text')}
+                            </span>
+                          </td>
                           <td className="px-5 py-3 text-sm text-white/50 capitalize">{model.provider}</td>
                           <td className="px-5 py-3 text-xs text-white/40 font-mono">{model.model_id}</td>
-                          <td className="px-5 py-3 text-xs text-white/30 font-mono">{model.api_key}</td>
                           <td className="px-5 py-3 text-sm text-white/50">{model.daily_limit}/month</td>
                           <td className="px-5 py-3">
                             <span className={cn(
@@ -665,6 +677,30 @@ export default function AdminPage() {
                     placeholder="GPT-4o"
                     className="w-full px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-sm text-white/90 placeholder:text-white/20 outline-none focus:border-white/[0.12] transition-colors"
                   />
+                </div>
+
+                <div>
+                  <label className="text-xs text-white/40 mb-1.5 block">Model Type</label>
+                  <div className="flex gap-2">
+                    {(['text', 'image', 'video', 'tts'] as const).map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setModelForm({ ...modelForm, model_type: t })}
+                        className={cn(
+                          'px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                          modelForm.model_type === t
+                            ? t === 'text' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                              : t === 'image' ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                              : t === 'video' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                              : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : 'bg-white/[0.04] text-white/40 border-white/[0.06] hover:bg-white/[0.08]'
+                        )}
+                      >
+                        {t === 'tts' ? 'TTS' : t.charAt(0).toUpperCase() + t.slice(1)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

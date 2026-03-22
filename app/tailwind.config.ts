@@ -30,11 +30,13 @@ const config: Config = {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
         'fade-up': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         'slide-in': { from: { transform: 'translateX(-100%)' }, to: { transform: 'translateX(0)' } },
+        shimmer: { '0%': { backgroundPosition: '200% 0' }, '100%': { backgroundPosition: '-200% 0' } },
       },
       animation: {
         'fade-in': 'fade-in 0.3s ease-out',
         'fade-up': 'fade-up 0.4s ease-out',
         'slide-in': 'slide-in 0.3s ease-out',
+        shimmer: 'shimmer 2s ease-in-out infinite',
       },
     },
   },

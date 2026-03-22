@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Pin, PinOff, Check, Cpu } from 'lucide-react';
+import { ArrowLeft, Pin, PinOff, Check, Cpu, PanelLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -32,13 +32,20 @@ export function ModelsView() {
     pinnedModelIds, setPinnedModelIds,
     setRecentModelId,
     usage,
+    sidebarOpen, setSidebarOpen,
   } = useStore();
-  const [filter, setFilter] = useState<string>('all');
+  const [providerFilter, setProviderFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
 
   const usageMap = Object.fromEntries(usage.map((item) => [item.model.id, item]));
 
   const providers = Array.from(new Set(models.map((m) => m.provider)));
-  const filtered = filter === 'all' ? models : models.filter((m) => m.provider === filter);
+  const modelTypes = Array.from(new Set(models.map((m) => m.model_type || 'text')));
+  const filtered = models.filter((m) => {
+    if (providerFilter !== 'all' && m.provider !== providerFilter) return false;
+    if (typeFilter !== 'all' && (m.model_type || 'text') !== typeFilter) return false;
+    return true;
+  });
 
   const togglePin = (id: string) => {
     if (pinnedModelIds.includes(id)) {
@@ -64,6 +71,12 @@ export function ModelsView() {
           className="glass rounded-2xl p-6"
         >
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06] hover:bg-white/[0.1] transition-colors md:hidden shrink-0"
+            >
+              <PanelLeft size={16} className="text-white/60" />
+            </button>
             <button
               onClick={() => router.back()}
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06] hover:bg-white/[0.1] transition-colors"
@@ -111,32 +124,54 @@ export function ModelsView() {
         </motion.div>
 
         {/* Filter tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto">
-          <button
-            onClick={() => setFilter('all')}
-            className={cn(
-              'px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0',
-              filter === 'all'
-                ? 'bg-white/[0.08] text-white'
-                : 'text-white/30 hover:text-white/50 hover:bg-white/[0.03]'
-            )}
-          >
-            All ({models.length})
-          </button>
-          {providers.map((p) => (
+        <div className="flex flex-col gap-2">
+          {/* Type filters */}
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-[10px] text-white/20 uppercase tracking-wider shrink-0 mr-1">Type</span>
+            {['all', ...modelTypes].map((t) => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 capitalize',
+                  typeFilter === t
+                    ? 'bg-white/[0.08] text-white'
+                    : 'text-white/30 hover:text-white/50 hover:bg-white/[0.03]'
+                )}
+              >
+                {t === 'tts' ? 'TTS' : t} ({t === 'all' ? models.length : models.filter(m => (m.model_type || 'text') === t).length})
+              </button>
+            ))}
+          </div>
+          {/* Provider filters */}
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-[10px] text-white/20 uppercase tracking-wider shrink-0 mr-1">Provider</span>
             <button
-              key={p}
-              onClick={() => setFilter(p)}
+              onClick={() => setProviderFilter('all')}
               className={cn(
-                'px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize shrink-0',
-                filter === p
+                'px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0',
+                providerFilter === 'all'
                   ? 'bg-white/[0.08] text-white'
                   : 'text-white/30 hover:text-white/50 hover:bg-white/[0.03]'
               )}
             >
-              {p} ({models.filter((m) => m.provider === p).length})
+              All
             </button>
-          ))}
+            {providers.map((p) => (
+              <button
+                key={p}
+                onClick={() => setProviderFilter(p)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize shrink-0',
+                  providerFilter === p
+                    ? 'bg-white/[0.08] text-white'
+                    : 'text-white/30 hover:text-white/50 hover:bg-white/[0.03]'
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Model grid */}
@@ -166,7 +201,19 @@ export function ModelsView() {
                       {PROVIDER_ICONS[model.provider] || '●'}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-white/85">{model.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium text-white/85">{model.name}</p>
+                        {model.model_type && model.model_type !== 'text' && (
+                          <span className={cn(
+                            'text-[8px] px-1.5 py-0 rounded font-medium',
+                            model.model_type === 'image' ? 'bg-purple-500/15 text-purple-400/70'
+                              : model.model_type === 'video' ? 'bg-amber-500/15 text-amber-400/70'
+                              : 'bg-emerald-500/15 text-emerald-400/70'
+                          )}>
+                            {model.model_type === 'tts' ? 'TTS' : model.model_type.toUpperCase()}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-white/30 capitalize">{model.provider} · {model.model_id}</p>
                     </div>
                   </div>

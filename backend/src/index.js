@@ -9,6 +9,7 @@ const agentRoutes = require('./routes/agents');
 const modelRoutes = require('./routes/models');
 const userRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
+const generateRoutes = require('./routes/generate');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -52,7 +53,7 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet({ contentSecurityPolicy: false }));
  app.use(cors(corsOptions));
  app.options('*', cors(corsOptions));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
@@ -66,6 +67,7 @@ app.use('/api/agents', authMiddleware, agentRoutes);
 app.use('/api/models', authMiddleware, modelRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/admin', authMiddleware, adminRoutes);
+app.use('/api/generate', authMiddleware, generateRoutes);
 
 // Error handling
 app.use(errorHandler);

@@ -7,6 +7,13 @@ const { checkRateLimit, incrementUsage } = require('../lib/rateLimit');
 
 const router = express.Router();
 
+const attachmentSchema = z.object({
+  type: z.enum(['image', 'voice', 'file']),
+  mimeType: z.string(),
+  data: z.string(), // base64
+  name: z.string().optional(),
+});
+
 const sendMessageSchema = z.object({
   chatId: z.string().uuid().optional(),
   modelId: z.string().uuid(),
@@ -14,11 +21,29 @@ const sendMessageSchema = z.object({
   message: z.string().min(1).max(32000),
   useOwnKeys: z.boolean().optional().default(false),
   think: z.boolean().optional().default(true),
+  attachments: z.array(attachmentSchema).max(5).optional().default([]),
+  ttsVoice: z.string().optional(),
+  conversationHistory: z.array(z.object({
+    role: z.enum(['user', 'assistant', 'system']),
+    content: z.string(),
+  })).optional(),
 });
+
+// Build a privacy-safe placeholder for attachments stored in DB
+function buildAttachmentPlaceholder(attachments) {
+  if (!attachments || attachments.length === 0) return '';
+  const labels = attachments.map(a => {
+    if (a.type === 'voice') return '[Voice message sent]';
+    if (a.type === 'image') return '[Image sent]';
+    return `[File sent: ${a.name || 'attachment'}]`;
+  });
+  return labels.join(' ') + '\n';
+}
 
 const regenerateSchema = z.object({
   useOwnKeys: z.boolean().optional().default(false),
   think: z.boolean().optional().default(true),
+  ttsVoice: z.string().optional(),
 });
 
 // POST /api/chat/send — Send message and stream response
@@ -65,13 +90,12 @@ router.post('/send', async (req, res) => {
       effectiveUsingOwnKey
         ? Promise.resolve({ allowed: true, used: 0, limit: null, remaining: null })
         : checkRateLimit(userId, body.modelId),
-      effectiveUsingOwnKey
-        ? supabase.from('user_api_keys').select('provider, api_key').eq('user_id', userId).then(r => {
-            const map = {};
-            (r.data || []).forEach(k => { map[k.provider] = k.api_key?.trim() || null; });
-            return map;
-          })
-        : Promise.resolve(null),
+      // Always fetch user keys — needed for tool-calling generation (image/TTS) even when not using own key for chat
+      supabase.from('user_api_keys').select('provider, api_key').eq('user_id', userId).then(r => {
+        const map = {};
+        (r.data || []).forEach(k => { map[k.provider] = k.api_key?.trim() || null; });
+        return map;
+      }),
     ]);
 
     const model = modelResult.data;
@@ -96,6 +120,18 @@ router.post('/send', async (req, res) => {
       actuallyUsedOwnKey = false;
     }
 
+    // ── Build generation API keys for tool calling (image gen, TTS, video) ──
+    // Merge: user's own keys + the current model's platform key
+    const genApiKeys = {};
+    if (userKeyMap) {
+      if (userKeyMap.google) genApiKeys.google = userKeyMap.google;
+      if (userKeyMap.openai) genApiKeys.openai = userKeyMap.openai;
+    }
+    // Also use the platform model's key for its own provider
+    if (model.api_key?.trim()) {
+      if (!genApiKeys[model.provider]) genApiKeys[model.provider] = model.api_key;
+    }
+
     // ── Chat creation (only after validation to avoid orphan chats) ──
     let chatId = body.chatId;
     const isNewChat = !chatId;
@@ -115,21 +151,36 @@ router.post('/send', async (req, res) => {
       messages.push({ role: 'system', content: agent.system_prompt });
     }
 
+    // Build the user message with attachments for AI (in-memory only, never stored)
+    const userMsgForAI = {
+      role: 'user',
+      content: body.message,
+      ...(body.attachments.length > 0 ? { attachments: body.attachments.map(a => ({ mimeType: a.mimeType, data: a.data })) } : {}),
+    };
+    // Privacy-safe DB content: placeholder + text (no binary data stored)
+    const dbContent = buildAttachmentPlaceholder(body.attachments) + body.message;
+
+    // Handle conversation history for agent studio (when no chatId)
+    if (body.conversationHistory && Array.isArray(body.conversationHistory)) {
+      // Add conversation history (excluding system messages which are already handled)
+      messages.push(...body.conversationHistory.filter(msg => msg.role !== 'system'));
+    }
+
     if (isNewChat) {
-      messages.push({ role: 'user', content: body.message });
+      messages.push(userMsgForAI);
       // Fire-and-forget: save user message (don't block streaming)
-      supabase.from('messages').insert({ chat_id: chatId, role: 'user', content: body.message }).then(() => {}).catch(e => console.error('Save user msg error:', e));
+      supabase.from('messages').insert({ chat_id: chatId, role: 'user', content: dbContent }).then(() => {}).catch(e => console.error('Save user msg error:', e));
     } else {
       // Existing chat — fetch history + save user message in parallel
       const [, historyResult] = await Promise.all([
-        supabase.from('messages').insert({ chat_id: chatId, role: 'user', content: body.message }),
+        supabase.from('messages').insert({ chat_id: chatId, role: 'user', content: dbContent }),
         supabase.from('messages').select('role, content').eq('chat_id', chatId).order('created_at', { ascending: true }).limit(20),
       ]);
       messages.push(...(historyResult.data || []));
       // Ensure the current user message is included (in case insert/select raced)
       const lastMsg = messages[messages.length - 1];
-      if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== body.message) {
-        messages.push({ role: 'user', content: body.message });
+      if (!lastMsg || lastMsg.role !== 'user' || lastMsg.content !== dbContent) {
+        messages.push(userMsgForAI);
       }
     }
 
@@ -149,11 +200,14 @@ router.post('/send', async (req, res) => {
     const thinkingStart = Date.now();
     if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_start' })}\n\n`);
 
+    const modelType = model.model_type || 'text';
+    console.log(`[chat] model=${model.model_id} provider=${model.provider} model_type=${model.model_type} resolved=${modelType}`);
     let fullResponse = '';
     let sentThinkingDone = false;
     try {
-      for await (const chunk of streamChatCompletion(model.provider, apiKey, model.model_id, messages, maxTokens, temperature, topP)) {
-        // Typed chunk from Gemini: { type: 'thinking'|'text', content }
+      const ttsOptions = body.ttsVoice ? { voice: body.ttsVoice } : {};
+      for await (const chunk of streamChatCompletion(model.provider, apiKey, model.model_id, messages, maxTokens, temperature, topP, genApiKeys, modelType, ttsOptions)) {
+        // Typed chunk from Gemini/tools: { type: 'thinking'|'text'|'media', content }
         // Plain string from other providers
         const isTyped = typeof chunk === 'object' && chunk.type;
         const chunkType = isTyped ? chunk.type : 'text';
@@ -162,6 +216,33 @@ router.post('/send', async (req, res) => {
         if (chunkType === 'thinking' && wantThinking) {
           // Stream thinking content to client
           res.write(`data: ${JSON.stringify({ type: 'thinking_content', content: chunkContent })}\n\n`);
+        } else if (chunkType === 'clear_and_generate') {
+          // Model output fake tool-call JSON — clear it and show generating skeleton
+          if (!sentThinkingDone) {
+            const thinkingTime = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+            if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_done', thinkingTime: Number(thinkingTime) })}\n\n`);
+            sentThinkingDone = true;
+          }
+          fullResponse = ''; // Clear the fake JSON from the saved response
+          res.write(`data: ${JSON.stringify({ type: 'clear_content' })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'generating', mediaType: chunk.toolName === 'generate_tts' ? 'audio' : 'image' })}\n\n`);
+        } else if (chunkType === 'generating') {
+          // Tool is about to execute — show generating skeleton
+          if (!sentThinkingDone) {
+            const thinkingTime = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+            if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_done', thinkingTime: Number(thinkingTime) })}\n\n`);
+            sentThinkingDone = true;
+          }
+          console.log(`[chat] sending generating SSE: mediaType=${chunk.mediaType || 'image'}`);
+          res.write(`data: ${JSON.stringify({ type: 'generating', mediaType: chunk.mediaType || 'image' })}\n\n`);
+        } else if (chunkType === 'media') {
+          // Inline generated media (image/audio/video from tools or Gemini)
+          if (!sentThinkingDone) {
+            const thinkingTime = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+            if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_done', thinkingTime: Number(thinkingTime) })}\n\n`);
+            sentThinkingDone = true;
+          }
+          res.write(`data: ${JSON.stringify({ type: 'media', mimeType: chunk.mimeType, data: chunk.data })}\n\n`);
         } else if (chunkType === 'text') {
           // First text chunk = thinking is done
           if (!sentThinkingDone) {
@@ -192,7 +273,9 @@ router.post('/send', async (req, res) => {
     res.end();
 
     // Fire-and-forget: save assistant message + increment usage
-    supabase.from('messages').insert({ chat_id: chatId, role: 'assistant', content: fullResponse }).then(() => {}).catch(e => console.error('Save msg error:', e));
+    const mediaPlaceholder = modelType === 'tts' ? '[Audio generated]' : modelType === 'image' ? '[Image generated]' : modelType === 'video' ? '[Video generated]' : '';
+    const dbResponse = fullResponse || mediaPlaceholder;
+    supabase.from('messages').insert({ chat_id: chatId, role: 'assistant', content: dbResponse }).then(() => {}).catch(e => console.error('Save msg error:', e));
     incrementUsage(userId, body.modelId, actuallyUsedOwnKey).catch(e => console.error('Usage error:', e));
     if (agentCreatorId && agentCreatorId !== userId && !actuallyUsedOwnKey) {
       incrementUsage(agentCreatorId, body.modelId, false).catch(e => console.error('Creator usage error:', e));
@@ -339,13 +422,12 @@ router.post('/:chatId/regenerate', async (req, res) => {
       effectiveUsingOwnKey
         ? Promise.resolve({ allowed: true, used: 0, limit: null, remaining: null })
         : checkRateLimit(userId, chat.model_id),
-      effectiveUsingOwnKey
-        ? supabase.from('user_api_keys').select('provider, api_key').eq('user_id', userId).then(r => {
-            const map = {};
-            (r.data || []).forEach(k => { map[k.provider] = k.api_key?.trim() || null; });
-            return map;
-          })
-        : Promise.resolve(null),
+      // Always fetch user keys — needed for tool-calling generation (image/TTS) even when not using own key for chat
+      supabase.from('user_api_keys').select('provider, api_key').eq('user_id', userId).then(r => {
+        const map = {};
+        (r.data || []).forEach(k => { map[k.provider] = k.api_key?.trim() || null; });
+        return map;
+      }),
     ]);
 
     if (!rateLimit.allowed) return sseError('Rate limit exceeded');
@@ -359,6 +441,16 @@ router.post('/:chatId/regenerate', async (req, res) => {
       if (!chat.model.api_key?.trim()) return sseError(`Platform doesn't support ${chat.model.name} yet.`);
       apiKey = chat.model.api_key;
       actuallyUsedOwnKey = false;
+    }
+
+    // Build generation API keys for tool calling
+    const genApiKeys = {};
+    if (userKeyMap) {
+      if (userKeyMap.google) genApiKeys.google = userKeyMap.google;
+      if (userKeyMap.openai) genApiKeys.openai = userKeyMap.openai;
+    }
+    if (chat.model.api_key?.trim()) {
+      if (!genApiKeys[chat.model.provider]) genApiKeys[chat.model.provider] = chat.model.api_key;
     }
 
     // Delete last assistant msg + rebuild history in parallel
@@ -384,16 +476,41 @@ router.post('/:chatId/regenerate', async (req, res) => {
     const thinkingStart = Date.now();
     if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_start' })}\n\n`);
 
+    const modelType = chat.model.model_type || 'text';
     let fullResponse = '';
     let sentThinkingDone = false;
     try {
-      for await (const chunk of streamChatCompletion(chat.model.provider, apiKey, chat.model.model_id, messages, maxTokens, temperature, topP)) {
+      const ttsOptions = body.ttsVoice ? { voice: body.ttsVoice } : {};
+      for await (const chunk of streamChatCompletion(chat.model.provider, apiKey, chat.model.model_id, messages, maxTokens, temperature, topP, genApiKeys, modelType, ttsOptions)) {
         const isTyped = typeof chunk === 'object' && chunk.type;
         const chunkType = isTyped ? chunk.type : 'text';
         const chunkContent = isTyped ? chunk.content : chunk;
 
         if (chunkType === 'thinking' && wantThinking) {
           res.write(`data: ${JSON.stringify({ type: 'thinking_content', content: chunkContent })}\n\n`);
+        } else if (chunkType === 'clear_and_generate') {
+          if (!sentThinkingDone) {
+            const thinkingTime = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+            if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_done', thinkingTime: Number(thinkingTime) })}\n\n`);
+            sentThinkingDone = true;
+          }
+          fullResponse = '';
+          res.write(`data: ${JSON.stringify({ type: 'clear_content' })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'generating', mediaType: chunk.toolName === 'generate_tts' ? 'audio' : 'image' })}\n\n`);
+        } else if (chunkType === 'generating') {
+          if (!sentThinkingDone) {
+            const thinkingTime = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+            if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_done', thinkingTime: Number(thinkingTime) })}\n\n`);
+            sentThinkingDone = true;
+          }
+          res.write(`data: ${JSON.stringify({ type: 'generating', mediaType: chunk.mediaType || 'image' })}\n\n`);
+        } else if (chunkType === 'media') {
+          if (!sentThinkingDone) {
+            const thinkingTime = ((Date.now() - thinkingStart) / 1000).toFixed(1);
+            if (wantThinking) res.write(`data: ${JSON.stringify({ type: 'thinking_done', thinkingTime: Number(thinkingTime) })}\n\n`);
+            sentThinkingDone = true;
+          }
+          res.write(`data: ${JSON.stringify({ type: 'media', mimeType: chunk.mimeType, data: chunk.data })}\n\n`);
         } else if (chunkType === 'text') {
           if (!sentThinkingDone) {
             const thinkingTime = ((Date.now() - thinkingStart) / 1000).toFixed(1);
@@ -418,7 +535,9 @@ router.post('/:chatId/regenerate', async (req, res) => {
     res.write('data: [DONE]\n\n');
     res.end();
 
-    supabase.from('messages').insert({ chat_id: chat.id, role: 'assistant', content: fullResponse }).then(() => {}).catch(e => console.error('Save regen msg error:', e));
+    const regenMediaPlaceholder = modelType === 'tts' ? '[Audio generated]' : modelType === 'image' ? '[Image generated]' : modelType === 'video' ? '[Video generated]' : '';
+    const dbResponse = fullResponse || regenMediaPlaceholder;
+    supabase.from('messages').insert({ chat_id: chat.id, role: 'assistant', content: dbResponse }).then(() => {}).catch(e => console.error('Save regen msg error:', e));
     incrementUsage(userId, chat.model_id, actuallyUsedOwnKey).catch(e => console.error('Regen usage error:', e));
   } catch (err) {
     console.error('Regenerate error:', err);

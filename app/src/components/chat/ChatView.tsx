@@ -2,14 +2,18 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
+import type { MediaItem } from '@/store/useStore';
 import { useShallow } from 'zustand/react/shallow';
 import { chatAPI } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Square, ChevronUp, Bot, Maximize2, Minimize2, Brain, PanelLeft } from 'lucide-react';
+import { Send, Square, ChevronUp, Bot, Maximize2, Minimize2, Brain, PanelLeft, Paperclip, Volume2, Sparkles, ImagePlus } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ModelSelector } from './ModelSelector';
 import { EnoxLogo } from '@/components/common/EnoxLogo';
+import { VoiceRecorder } from './VoiceRecorder';
+import { AttachmentPreview } from './AttachmentPreview';
+import type { Attachment } from './AttachmentPreview';
 
 const STATUS_TEXTS = [
   'Thinking...',
@@ -55,7 +59,7 @@ export function ChatView() {
   const {
     models, selectedModelId, setSelectedModelId,
     activeChatId, setActiveChatId,
-    messages, setMessages, addMessage, replaceLastAssistantContent,
+    messages, setMessages, addMessage, replaceLastAssistantContent, replaceLastAssistantFull,
     isStreaming, setIsStreaming,
     selectedAgentId, agents, chats, setChats,
     useOwnKeys, setRecentModelId, apiKeys, think, setThink, sidebarOpen, setSidebarOpen,
@@ -64,6 +68,7 @@ export function ChatView() {
     activeChatId: s.activeChatId, setActiveChatId: s.setActiveChatId,
     messages: s.messages, setMessages: s.setMessages, addMessage: s.addMessage,
     replaceLastAssistantContent: s.replaceLastAssistantContent,
+    replaceLastAssistantFull: s.replaceLastAssistantFull,
     isStreaming: s.isStreaming, setIsStreaming: s.setIsStreaming,
     selectedAgentId: s.selectedAgentId, agents: s.agents, chats: s.chats, setChats: s.setChats,
     useOwnKeys: s.useOwnKeys, setRecentModelId: s.setRecentModelId,
@@ -76,7 +81,17 @@ export function ChatView() {
   const [loadingChat, setLoadingChat] = useState(false);
 
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const [ttsVoice, setTtsVoice] = useState('Kore');
+
+  // Derive the model type of the currently selected model
+  const selectedModel = models.find(m => m.id === selectedModelId);
+  const selectedModelType = selectedModel?.model_type || 'text';
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const streamMediaRef = useRef<MediaItem[]>([]);
+  const [isGenerating, setIsGenerating] = useState<string | null>(null); // 'image' | 'audio' | 'video' | null
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
@@ -141,15 +156,17 @@ export function ChatView() {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
-    // Commit full text to global store and clear local streaming state
-    if (streamBufferRef.current) {
-      replaceLastAssistantContent(streamBufferRef.current);
+    // Commit full text + any generated media to global store
+    const hasMedia = streamMediaRef.current.length > 0;
+    if (streamBufferRef.current || hasMedia) {
+      replaceLastAssistantFull(streamBufferRef.current, hasMedia ? streamMediaRef.current : undefined);
     }
     streamBufferRef.current = '';
+    streamMediaRef.current = [];
     displayPosRef.current = 0;
     setStreamContent('');
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [replaceLastAssistantContent]);
+  }, [replaceLastAssistantFull]);
 
   // Cleanup on unmount — abort in-flight streams to prevent isStreaming getting stuck
   useEffect(() => {
@@ -175,7 +192,9 @@ export function ChatView() {
   }, [messageCount, isStreaming]);
 
   useEffect(() => {
-    if (!selectedModelId && models.length > 0) {
+    if (models.length === 0) return;
+    // If no model selected, or saved model no longer exists, pick the newest (first in list)
+    if (!selectedModelId || !models.find(m => m.id === selectedModelId)) {
       setSelectedModelId(models[0].id);
     }
   }, [models, selectedModelId, setSelectedModelId]);
@@ -238,33 +257,104 @@ export function ChatView() {
     });
   }, []);
 
+  // ── Attachment handlers ──
+  const MAX_ATTACHMENTS = 10;
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      if (file.size > 20 * 1024 * 1024) return; // 20MB max per file
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        const isImage = file.type.startsWith('image/');
+        const att: Attachment = {
+          id: crypto.randomUUID(),
+          type: isImage ? 'image' : 'file',
+          mimeType: file.type || 'application/octet-stream',
+          data: base64,
+          name: file.name,
+          preview: isImage ? (reader.result as string) : undefined,
+          size: file.size,
+        };
+        setAttachments(prev => prev.length >= MAX_ATTACHMENTS ? prev : [...prev, att]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  }, []);
+
+  const handleVoiceRecorded = useCallback((blob: Blob, mimeType: string) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      const att: Attachment = {
+        id: crypto.randomUUID(),
+        type: 'voice',
+        mimeType,
+        data: base64,
+        name: 'Voice message',
+        size: blob.size,
+      };
+      setAttachments(prev => [...prev, att]);
+    };
+    reader.readAsDataURL(blob);
+  }, []);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  }, []);
+
   const handleSend = async () => {
     const trimmed = input.trim();
-    if (!trimmed || !selectedModelId || isStreaming) return;
+    const hasAttachments = attachments.length > 0;
+    if ((!trimmed && !hasAttachments) || !selectedModelId || isStreaming) return;
+
+    // Use a default message if only attachments are provided
+    const messageText = trimmed || (hasAttachments ? 'Please analyze the attached content.' : '');
 
     // Client-side API key validation — instant feedback without round-trip
-    const selectedModel = models.find(m => m.id === selectedModelId);
     if (useOwnKeys && selectedModel) {
       const providerKey = apiKeys.find(k => k.provider === selectedModel.provider);
       if (!providerKey?.has_key) {
-        addMessage({ id: crypto.randomUUID(), role: 'user' as const, content: trimmed, created_at: new Date().toISOString() });
+        addMessage({ id: crypto.randomUUID(), role: 'user' as const, content: messageText, created_at: new Date().toISOString() });
         addMessage({ id: crypto.randomUUID(), role: 'assistant' as const, content: `No ${selectedModel.provider} API key found. Please add your API key in Settings → API Keys.`, created_at: new Date().toISOString() });
         setInput('');
+        setAttachments([]);
         scrollToBottom('smooth');
         return;
       }
     }
 
+    // Build attachment labels for display in user bubble
+    const attLabels = attachments.map(a => {
+      if (a.type === 'voice') return '[Voice message sent]';
+      if (a.type === 'image') return '[Image sent]';
+      return `[File: ${a.name}]`;
+    });
+
+    // Capture attachments before clearing
+    const currentAttachments = [...attachments];
+
     setInput('');
+    setAttachments([]);
     setIsStreaming(true);
     if (selectedModelId) setRecentModelId(selectedModelId);
 
-    addMessage({ id: crypto.randomUUID(), role: 'user' as const, content: trimmed, created_at: new Date().toISOString() });
+    addMessage({
+      id: crypto.randomUUID(),
+      role: 'user' as const,
+      content: messageText,
+      created_at: new Date().toISOString(),
+      attachmentLabels: attLabels.length > 0 ? attLabels : undefined,
+    });
     addMessage({ id: crypto.randomUUID(), role: 'assistant' as const, content: '', created_at: new Date().toISOString() });
     scrollToBottom('smooth');
 
-    // Start typewriter animation loop + reset thinking state
+    // Start typewriter animation loop + reset thinking/media state
     startStreamRender();
+    streamMediaRef.current = [];
     setThinkingStartTime(null);
     setThinkingDone(null);
     setThinkingContent('');
@@ -281,9 +371,16 @@ export function ChatView() {
         chatId: activeChatId || undefined,
         modelId: selectedModelId,
         agentId: selectedAgentId,
-        message: trimmed,
+        message: messageText,
         useOwnKeys,
         think,
+        attachments: currentAttachments.map(a => ({
+          type: a.type,
+          mimeType: a.mimeType,
+          data: a.data,
+          name: a.name,
+        })),
+        ...(selectedModelType === 'tts' ? { ttsVoice } : {}),
       });
       console.log(`[stream] response headers: ${(performance.now() - t0).toFixed(0)}ms`);
 
@@ -328,6 +425,27 @@ export function ChatView() {
               setThinkingStartTime(null);
               lastThinkingTimeRef.current = parsed.thinkingTime;
               lastThinkingContentRef.current = thinkingContentRef.current;
+            } else if (parsed.type === 'clear_content') {
+              // Clear fake tool-call JSON from the streamed text
+              streamBufferRef.current = '';
+              displayPosRef.current = 0;
+              setStreamContent('');
+            } else if (parsed.type === 'generating') {
+              // Show generation skeleton
+              console.log(`[stream] generating event: mediaType=${parsed.mediaType}`);
+              setIsGenerating(parsed.mediaType || 'image');
+            } else if (parsed.type === 'media') {
+              // Inline generated media (image/audio/video)
+              console.log(`[stream] media event: mimeType=${parsed.mimeType}, data length=${parsed.data?.length || 0}`);
+              setIsGenerating(null); // Hide skeleton
+              const mediaType = parsed.mimeType?.startsWith('image/') ? 'image'
+                : parsed.mimeType?.startsWith('audio/') ? 'audio'
+                : parsed.mimeType?.startsWith('video/') ? 'video' : 'image';
+              streamMediaRef.current = [...streamMediaRef.current, {
+                type: mediaType as 'image' | 'audio' | 'video',
+                mimeType: parsed.mimeType,
+                data: parsed.data,
+              }];
             } else if (parsed.type === 'chunk') {
               if (firstChunk) { console.log(`[stream] first token: ${(performance.now() - t0).toFixed(0)}ms`); firstChunk = false; }
               streamBufferRef.current += parsed.content;
@@ -348,6 +466,7 @@ export function ChatView() {
       stopStreamRender();
       abortRef.current = null;
       setIsStreaming(false);
+      setIsGenerating(null);
     }
   };
 
@@ -355,6 +474,7 @@ export function ChatView() {
     abortRef.current?.abort();
     abortRef.current = null;
     stopStreamRender();
+    setIsGenerating(null);
     setIsStreaming(false);
   };
 
@@ -381,9 +501,36 @@ export function ChatView() {
 
   const shouldShowExpandToggle = Boolean(inputRef.current && inputRef.current.scrollHeight > INPUT_TOGGLE_HEIGHT);
 
+  const canSend = (input.trim() || attachments.length > 0) && selectedModelId;
+
   const renderComposer = (placeholder: string, disabled = false) => (
     <div className="rounded-2xl bg-[#1a1a1a] border border-white/[0.08] p-3">
+      {/* Attachment preview chips */}
+      <AttachmentPreview attachments={attachments} onRemove={removeAttachment} />
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,audio/*,video/*,.pdf,.txt,.csv,.json,.md,.doc,.docx"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
       <div className="flex items-end gap-2">
+        {/* Attach file button */}
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled || isStreaming}
+          title="Attach image or file"
+          className={cn(
+            'p-2 rounded-xl transition-all duration-200 shrink-0',
+            disabled || isStreaming
+              ? 'bg-white/5 text-white/20 cursor-not-allowed'
+              : 'bg-white/[0.06] text-white/40 hover:bg-white/[0.1] hover:text-white/70 border border-white/[0.06]'
+          )}
+        >
+          <Paperclip size={16} />
+        </button>
         <textarea
           ref={inputRef}
           value={input}
@@ -395,6 +542,8 @@ export function ChatView() {
           className="flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 resize-none outline-none disabled:opacity-50"
           style={{ minHeight: `${INPUT_LINE_HEIGHT}px`, maxHeight: isInputExpanded ? '50vh' : `${INPUT_MAX_HEIGHT}px` }}
         />
+        {/* Voice recorder — iOS-compatible (MP4/AAC) */}
+        <VoiceRecorder onRecorded={handleVoiceRecorded} disabled={disabled || isStreaming} />
         <button
           onClick={() => setThink(!think)}
           title={think ? 'Thinking enabled — model will reason before answering' : 'Thinking disabled — model will answer directly'}
@@ -411,7 +560,7 @@ export function ChatView() {
         {isStreaming ? (
           <button onClick={handleStop} className="p-2 rounded-xl bg-white/10 text-white/70 hover:bg-white/20 transition-all duration-200"><Square size={16} /></button>
         ) : (
-          <button onClick={handleSend} disabled={!input.trim() || !selectedModelId || disabled} className={cn('p-2 rounded-xl transition-all duration-200', input.trim() && selectedModelId && !disabled ? 'bg-white text-black hover:bg-white/90' : 'bg-white/5 text-white/20')}><Send size={16} /></button>
+          <button onClick={handleSend} disabled={!canSend || disabled} className={cn('p-2 rounded-xl transition-all duration-200', canSend && !disabled ? 'bg-white text-black hover:bg-white/90' : 'bg-white/5 text-white/20')}><Send size={16} /></button>
         )}
       </div>
       {(shouldShowExpandToggle || isInputExpanded) && (
@@ -428,6 +577,159 @@ export function ChatView() {
     </div>
   );
 
+  const GOOGLE_VOICES = ['Kore', 'Charon', 'Fenrir', 'Aoede', 'Puck', 'Leda', 'Orus', 'Zephyr'];
+
+  const renderTTSComposer = (disabled = false) => (
+    <div className="rounded-2xl bg-[#1a1a1a] border border-white/[0.08] p-3 space-y-3">
+      {/* Voice selector */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Volume2 size={14} className="text-emerald-400/60 shrink-0" />
+        <span className="text-[11px] text-white/30 shrink-0">Voice</span>
+        <div className="flex gap-1.5 flex-wrap">
+          {GOOGLE_VOICES.map(v => (
+            <button
+              key={v}
+              onClick={() => setTtsVoice(v)}
+              className={cn(
+                'px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border',
+                ttsVoice === v
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : 'bg-white/[0.04] text-white/35 border-white/[0.06] hover:bg-white/[0.08] hover:text-white/50'
+              )}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Text input + send */}
+      <div className="flex items-end gap-2">
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Type the text you want to hear spoken..."
+          rows={2}
+          disabled={disabled}
+          className="flex-1 bg-white/[0.03] rounded-xl px-3 py-2.5 text-sm text-white/90 placeholder:text-white/20 resize-none outline-none border border-white/[0.06] focus:border-emerald-500/20 transition-colors disabled:opacity-50"
+          style={{ minHeight: '56px', maxHeight: '120px' }}
+        />
+        {isStreaming ? (
+          <button onClick={handleStop} className="p-2.5 rounded-xl bg-white/10 text-white/70 hover:bg-white/20 transition-all shrink-0"><Square size={16} /></button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || !selectedModelId || disabled}
+            className={cn(
+              'p-2.5 rounded-xl transition-all shrink-0',
+              input.trim() && selectedModelId && !disabled
+                ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30'
+                : 'bg-white/5 text-white/20 border border-white/[0.06]'
+            )}
+          >
+            <Volume2 size={16} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderGenerationComposer = (placeholder: string, disabled = false) => {
+    const isImg = selectedModelType === 'image';
+    const imageAttachments = attachments.filter(a => a.type === 'image');
+    const genCanSend = (input.trim() || attachments.length > 0) && selectedModelId && !disabled;
+
+    return (
+      <div className="rounded-2xl bg-[#1a1a1a] border border-white/[0.08] p-3 space-y-2">
+        {/* Reference image thumbnails */}
+        {isImg && imageAttachments.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {imageAttachments.map(att => (
+              <div key={att.id} className="relative group">
+                <img src={att.preview} alt="" className="h-14 w-14 rounded-lg object-cover border border-white/[0.08]" />
+                <button
+                  onClick={() => removeAttachment(att.id)}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500/80 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <span className="text-[10px] text-white/25">{imageAttachments.length}/{MAX_ATTACHMENTS}</span>
+          </div>
+        )}
+        {/* Hidden image-only file input */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+        <div className="flex items-end gap-2">
+          {/* Reference image button (image models only) */}
+          {isImg && (
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              disabled={disabled || isStreaming || attachments.length >= MAX_ATTACHMENTS}
+              title={attachments.length >= MAX_ATTACHMENTS ? 'Max 10 references' : 'Add reference images'}
+              className={cn(
+                'p-2 rounded-xl transition-all duration-200 shrink-0',
+                disabled || isStreaming || attachments.length >= MAX_ATTACHMENTS
+                  ? 'bg-white/5 text-white/20 cursor-not-allowed'
+                  : 'bg-purple-500/10 text-purple-400/50 hover:bg-purple-500/20 hover:text-purple-400/80 border border-purple-500/20'
+              )}
+            >
+              <ImagePlus size={16} />
+            </button>
+          )}
+          <div className="flex-1 flex items-center gap-2">
+            <Sparkles size={14} className="text-purple-400/60 shrink-0" />
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              rows={1}
+              disabled={disabled}
+              className="flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 resize-none outline-none disabled:opacity-50"
+              style={{ minHeight: `${INPUT_LINE_HEIGHT}px`, maxHeight: `${INPUT_MAX_HEIGHT}px` }}
+            />
+          </div>
+          {isStreaming ? (
+            <button onClick={handleStop} className="p-2 rounded-xl bg-white/10 text-white/70 hover:bg-white/20 transition-all"><Square size={16} /></button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!genCanSend}
+              className={cn(
+                'p-2 rounded-xl transition-all',
+                genCanSend
+                  ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 border border-purple-500/30'
+                  : 'bg-white/5 text-white/20'
+              )}
+            >
+              <Sparkles size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderActiveComposer = (disabled = false) => {
+    if (selectedModelType === 'tts') return renderTTSComposer(disabled);
+    if (selectedModelType === 'image' || selectedModelType === 'video') {
+      const ph = selectedModelType === 'image' ? 'Describe the image you want to generate...' : 'Describe the video you want to generate...';
+      return renderGenerationComposer(ph, disabled);
+    }
+    const activeAgent = selectedAgentId ? agents.find(a => a.id === selectedAgentId) : null;
+    return renderComposer(activeAgent ? `Ask ${activeAgent.name}...` : 'Type a message...', disabled);
+  };
+
   const handleRegenerate = async () => {
     if (!activeChatId || isStreaming) return;
     setIsStreaming(true);
@@ -440,8 +742,9 @@ export function ChatView() {
 
     addMessage({ id: crypto.randomUUID(), role: 'assistant', content: '', created_at: new Date().toISOString() });
 
-    // Start typewriter animation loop + reset thinking state
+    // Start typewriter animation loop + reset thinking/media state
     startStreamRender();
+    streamMediaRef.current = [];
     setThinkingStartTime(null);
     setThinkingDone(null);
     setThinkingContent('');
@@ -453,7 +756,7 @@ export function ChatView() {
     abortRef.current = controller;
 
     try {
-      const response = await chatAPI.regenerate(activeChatId, { useOwnKeys, think });
+      const response = await chatAPI.regenerate(activeChatId, { useOwnKeys, think, ...(selectedModelType === 'tts' ? { ttsVoice } : {}) });
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: 'Request failed' }));
         throw new Error(err.error || `Server error ${response.status}`);
@@ -488,6 +791,22 @@ export function ChatView() {
               setThinkingStartTime(null);
               lastThinkingTimeRef.current = parsed.thinkingTime;
               lastThinkingContentRef.current = thinkingContentRef.current;
+            } else if (parsed.type === 'clear_content') {
+              streamBufferRef.current = '';
+              displayPosRef.current = 0;
+              setStreamContent('');
+            } else if (parsed.type === 'generating') {
+              setIsGenerating(parsed.mediaType || 'image');
+            } else if (parsed.type === 'media') {
+              setIsGenerating(null);
+              const mediaType = parsed.mimeType?.startsWith('image/') ? 'image'
+                : parsed.mimeType?.startsWith('audio/') ? 'audio'
+                : parsed.mimeType?.startsWith('video/') ? 'video' : 'image';
+              streamMediaRef.current = [...streamMediaRef.current, {
+                type: mediaType as 'image' | 'audio' | 'video',
+                mimeType: parsed.mimeType,
+                data: parsed.data,
+              }];
             } else if (parsed.type === 'chunk') {
               streamBufferRef.current += parsed.content;
             } else if (parsed.type === 'error') {
@@ -505,6 +824,7 @@ export function ChatView() {
       stopStreamRender();
       abortRef.current = null;
       setIsStreaming(false);
+      setIsGenerating(null);
     }
   };
 
@@ -554,6 +874,39 @@ export function ChatView() {
                 </p>
               )}
             </motion.div>
+          ) : selectedModelType === 'tts' ? (
+            <>
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }} className="flex flex-col items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                  <Volume2 size={22} className="text-emerald-400/70" />
+                </div>
+                <h2 className="text-xl font-semibold text-white/80">Text to Speech</h2>
+                <p className="text-sm text-white/30 text-center max-w-md">Type any text below and choose a voice. The AI will generate natural-sounding speech for you.</p>
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="grid grid-cols-2 gap-3 max-w-lg w-full">
+                {['Hello! Welcome to our platform.', 'The quick brown fox jumps over the lazy dog.', 'Breaking news: AI can now speak naturally.', 'Once upon a time, in a land far away...'].map((prompt, i) => (
+                  <button key={i} onClick={() => { setInput(prompt); inputRef.current?.focus(); }} className="text-left p-3 rounded-xl glass hover:bg-emerald-500/[0.04] border border-emerald-500/[0.06] transition-all text-sm text-white/50 hover:text-emerald-400/70">{prompt}</button>
+                ))}
+              </motion.div>
+            </>
+          ) : (selectedModelType === 'image' || selectedModelType === 'video') ? (
+            <>
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }} className="flex flex-col items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-500/10 border border-purple-500/20">
+                  <Sparkles size={22} className="text-purple-400/70" />
+                </div>
+                <h2 className="text-xl font-semibold text-white/80">{selectedModelType === 'image' ? 'Image Generation' : 'Video Generation'}</h2>
+                <p className="text-sm text-white/30 text-center max-w-md">Describe what you want to {selectedModelType === 'image' ? 'see' : 'create'}. Be specific about style, colors, and composition for best results.</p>
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="grid grid-cols-2 gap-3 max-w-lg w-full">
+                {(selectedModelType === 'image'
+                  ? ['A serene mountain lake at sunset with reflections', 'Futuristic city skyline with neon lights', 'Cute robot reading a book in a library', 'Abstract art with flowing colors and shapes']
+                  : ['A timelapse of clouds moving over mountains', 'Ocean waves crashing on a rocky shore', 'A butterfly emerging from its cocoon', 'Northern lights dancing over a snowy forest']
+                ).map((prompt, i) => (
+                  <button key={i} onClick={() => { setInput(prompt); inputRef.current?.focus(); }} className="text-left p-3 rounded-xl glass hover:bg-purple-500/[0.04] border border-purple-500/[0.06] transition-all text-sm text-white/50 hover:text-purple-400/70">{prompt}</button>
+                ))}
+              </motion.div>
+            </>
           ) : (
             <>
               <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }} className="flex flex-col items-center gap-4">
@@ -571,7 +924,7 @@ export function ChatView() {
         </div>
         <div className="p-4 border-t border-white/[0.06] shrink-0">
           <div className="max-w-3xl mx-auto">
-            {renderComposer(activeAgent ? `Ask ${activeAgent.name}...` : 'Type a message...')}
+            {renderActiveComposer()}
           </div>
         </div>
       </div>
@@ -638,6 +991,7 @@ export function ChatView() {
                   <MessageBubble
                     message={displayMsg}
                     isStreaming={isStreamingMsg}
+                    isGenerating={isStreamingMsg ? isGenerating : null}
                     thinkingStartTime={isStreamingMsg ? thinkingStartTime : null}
                     thinkingDone={isStreamingMsg ? thinkingDone : (isLatestAssistantMessage ? lastThinkingTimeRef.current : null)}
                     thinkingContent={isStreamingMsg ? thinkingContent : (isLatestAssistantMessage ? lastThinkingContentRef.current : '')}
@@ -653,7 +1007,7 @@ export function ChatView() {
 
       <div className="p-4 border-t border-white/[0.06] shrink-0">
         <div className="max-w-3xl mx-auto">
-          {renderComposer('Type a message...', isStreaming)}
+          {renderActiveComposer(isStreaming)}
         </div>
       </div>
     </div>

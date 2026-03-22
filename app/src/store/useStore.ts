@@ -16,6 +16,8 @@ export interface Model {
   daily_limit: number;
   max_tokens: number;
   is_active: boolean;
+  model_type: 'text' | 'image' | 'video' | 'tts';
+  created_at?: string;
 }
 
 export interface Agent {
@@ -45,11 +47,19 @@ export interface Chat {
   agent: Pick<Agent, 'id' | 'name' | 'username'> | null;
 }
 
+export interface MediaItem {
+  type: 'image' | 'audio' | 'video';
+  mimeType: string;
+  data: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   created_at: string;
+  media?: MediaItem[];
+  attachmentLabels?: string[]; // e.g. ['[Image sent]', '[Voice message sent]']
 }
 
 export interface UsageInfo {
@@ -91,6 +101,7 @@ interface AppState {
   addMessage: (message: Message) => void;
   updateLastAssistantMessage: (content: string) => void;
   replaceLastAssistantContent: (fullContent: string) => void;
+  replaceLastAssistantFull: (fullContent: string, media?: MediaItem[]) => void;
   isStreaming: boolean;
   setIsStreaming: (streaming: boolean) => void;
 
@@ -127,8 +138,16 @@ export const useStore = create<AppState>((set) => ({
   // Models
   models: [],
   setModels: (models) => set({ models }),
-  selectedModelId: null,
-  setSelectedModelId: (selectedModelId) => set({ selectedModelId }),
+  selectedModelId: typeof window !== 'undefined'
+    ? localStorage.getItem('enox_selectedModel') || null
+    : null,
+  setSelectedModelId: (selectedModelId) => {
+    if (typeof window !== 'undefined') {
+      if (selectedModelId) localStorage.setItem('enox_selectedModel', selectedModelId);
+      else localStorage.removeItem('enox_selectedModel');
+    }
+    set({ selectedModelId });
+  },
 
   // Agents
   agents: [],
@@ -163,6 +182,16 @@ export const useStore = create<AppState>((set) => ({
       }
       return state;
     }),
+  replaceLastAssistantFull: (fullContent, media) =>
+    set((state) => {
+      const lastIdx = state.messages.length - 1;
+      if (lastIdx >= 0 && state.messages[lastIdx].role === 'assistant') {
+        const msgs = state.messages.slice();
+        msgs[lastIdx] = { ...msgs[lastIdx], content: fullContent, ...(media && media.length > 0 ? { media } : {}) };
+        return { messages: msgs };
+      }
+      return state;
+    }),
   isStreaming: false,
   setIsStreaming: (isStreaming) => set({ isStreaming }),
 
@@ -173,10 +202,20 @@ export const useStore = create<AppState>((set) => ({
   setApiKeys: (apiKeys) => set({ apiKeys }),
 
   // UI
-  sidebarOpen: true,
-  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-  activeView: 'chat',
-  setActiveView: (activeView) => set({ activeView }),
+  sidebarOpen: typeof window !== 'undefined'
+    ? localStorage.getItem('enox_sidebarOpen') !== 'false'
+    : true,
+  setSidebarOpen: (sidebarOpen) => {
+    if (typeof window !== 'undefined') localStorage.setItem('enox_sidebarOpen', String(sidebarOpen));
+    set({ sidebarOpen });
+  },
+  activeView: (typeof window !== 'undefined'
+    ? (localStorage.getItem('enox_activeView') as AppView) || 'chat'
+    : 'chat') as AppView,
+  setActiveView: (activeView) => {
+    if (typeof window !== 'undefined') localStorage.setItem('enox_activeView', activeView);
+    set({ activeView });
+  },
 
   // Preferences — load from localStorage
   useOwnKeys: typeof window !== 'undefined' && localStorage.getItem('enox_useOwnKeys') === 'true',

@@ -39,6 +39,7 @@ export const adminAPI = {
     api_key: string;
     daily_limit: number;
     is_active?: boolean;
+    model_type?: 'text' | 'image' | 'video' | 'tts';
   }) => fetchAPI('/api/admin/models', { method: 'POST', body: JSON.stringify(body) }),
   updateModel: (id: string, body: Record<string, unknown>) =>
     fetchAPI(`/api/admin/models/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),

@@ -9,9 +9,9 @@ router.get('/', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('models')
-      .select('id, name, provider, model_id, daily_limit, max_tokens, is_active, created_at')
+      .select('id, name, provider, model_id, daily_limit, max_tokens, is_active, model_type, created_at')
       .eq('is_active', true)
-      .order('name');
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
     res.json(data);

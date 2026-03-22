@@ -14,6 +14,7 @@ const modelSchema = z.object({
   daily_limit: z.number().int().min(1).default(25),
   max_tokens: z.number().int().min(256).max(10000).default(4096),
   is_active: z.boolean().default(true),
+  model_type: z.enum(['text', 'image', 'video', 'tts']).default('text'),
 });
 
 const userModelLimitsSchema = z.object({

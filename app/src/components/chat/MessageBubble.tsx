@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useRef, memo } from 'react';
 import { cn } from '@/lib/utils';
-import { Copy, Check, RefreshCw, Activity, BarChart3, AlertTriangle, CheckCircle2, Info, TrendingUp, TrendingDown, Minus, Brain, ChevronDown } from 'lucide-react';
+import { Copy, Check, RefreshCw, Activity, BarChart3, AlertTriangle, CheckCircle2, Info, TrendingUp, TrendingDown, Minus, Brain, ChevronDown, Image as ImageIcon, Mic, FileText } from 'lucide-react';
 import type { Message } from '@/store/useStore';
 import ReactMarkdown from 'react-markdown';
 import { EnoxLogo } from '@/components/common/EnoxLogo';
+import { MediaRenderer } from './MediaRenderer';
 
 interface Props {
   message: Message;
   isStreaming?: boolean;
+  isGenerating?: string | null;
   thinkingStartTime?: number | null;
   thinkingDone?: number | null;
   thinkingContent?: string;
@@ -31,6 +33,64 @@ function ShimmerPlaceholder() {
           }}
         />
       ))}
+    </div>
+  );
+}
+
+function GeneratingSkeleton({ mediaType }: { mediaType: string }) {
+  const isImage = mediaType === 'image';
+  const isAudio = mediaType === 'audio';
+  return (
+    <div className="my-3">
+      {isImage ? (
+        <div className="not-prose relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] w-[300px] h-[300px]">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <div className="relative">
+              <div className="w-10 h-10 rounded-full border-2 border-white/[0.08] border-t-white/40 animate-spin" />
+              <ImageIcon size={16} className="absolute inset-0 m-auto text-white/30" />
+            </div>
+            <span className="text-xs text-white/30 font-medium">Generating image...</span>
+          </div>
+          <div
+            className="absolute inset-0 animate-shimmer"
+            style={{
+              background: 'linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.03) 50%, transparent 75%)',
+              backgroundSize: '200% 100%',
+            }}
+          />
+        </div>
+      ) : isAudio ? (
+        <div className="not-prose relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] max-w-sm px-4 py-5">
+          <div className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              <div className="w-10 h-10 rounded-full border-2 border-white/[0.08] border-t-white/40 animate-spin" />
+              <Mic size={14} className="absolute inset-0 m-auto text-white/30" />
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="h-2 w-24 rounded-full bg-white/[0.06] animate-pulse" />
+              <div className="h-1.5 w-full rounded-full bg-white/[0.04]" />
+              <div className="flex justify-between">
+                <div className="h-2 w-8 rounded bg-white/[0.04] animate-pulse" />
+                <div className="h-2 w-8 rounded bg-white/[0.04] animate-pulse" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="not-prose relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] w-[400px] h-[225px]">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <div className="w-10 h-10 rounded-full border-2 border-white/[0.08] border-t-white/40 animate-spin" />
+            <span className="text-xs text-white/30 font-medium">Generating video...</span>
+          </div>
+          <div
+            className="absolute inset-0 animate-shimmer"
+            style={{
+              background: 'linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.03) 50%, transparent 75%)',
+              backgroundSize: '200% 100%',
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -680,7 +740,7 @@ function ThinkingIndicator({ startTime, doneTime, content }: { startTime?: numbe
   );
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, isStreaming, thinkingStartTime, thinkingDone, thinkingContent, onRegenerate }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, isStreaming, isGenerating, thinkingStartTime, thinkingDone, thinkingContent, onRegenerate }: Props) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
 
@@ -716,7 +776,30 @@ export const MessageBubble = memo(function MessageBubble({ message, isStreaming,
           )}
         >
           {isUser ? (
-            <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.content}</p>
+            <div>
+              {/* Attachment labels for user messages */}
+              {message.attachmentLabels && message.attachmentLabels.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {message.attachmentLabels.map((label, i) => {
+                    const isVoice = label.includes('Voice');
+                    const isImage = label.includes('Image');
+                    const Icon = isVoice ? Mic : isImage ? ImageIcon : FileText;
+                    const colors = isVoice
+                      ? 'bg-emerald-500/15 text-emerald-400/80 border-emerald-500/20'
+                      : isImage
+                      ? 'bg-blue-500/15 text-blue-400/80 border-blue-500/20'
+                      : 'bg-white/[0.08] text-white/50 border-white/[0.1]';
+                    return (
+                      <span key={i} className={cn('inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px]', colors)}>
+                        <Icon size={11} />
+                        {label.replace(/[\[\]]/g, '')}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.content}</p>
+            </div>
           ) : (
             <div className={cn(
               'prose prose-invert prose-sm max-w-none break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_p]:leading-relaxed [&_p]:break-words [&_p]:[overflow-wrap:anywhere] [&_li]:break-words [&_li]:[overflow-wrap:anywhere] [&_ol]:break-words [&_ul]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_code]:break-words',
@@ -725,7 +808,8 @@ export const MessageBubble = memo(function MessageBubble({ message, isStreaming,
               {(thinkingStartTime || thinkingDone) && (
                 <ThinkingIndicator startTime={thinkingStartTime} doneTime={thinkingDone} content={thinkingContent} />
               )}
-              {!message.content && isStreaming ? (
+              {isGenerating && <GeneratingSkeleton mediaType={isGenerating} />}
+              {!message.content && isStreaming && !isGenerating ? (
                 thinkingStartTime ? null : <ShimmerPlaceholder />
               ) : isStreaming ? (
                 <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-relaxed">
@@ -792,11 +876,15 @@ export const MessageBubble = memo(function MessageBubble({ message, isStreaming,
                   {message.content}
                 </ReactMarkdown>
               )}
+              {/* Inline generated media (images, audio, video) */}
+              {message.media && message.media.length > 0 && (
+                <MediaRenderer items={message.media} />
+              )}
             </div>
           )}
         </div>
 
-        {!isUser && message.content && !isStreaming && (
+        {!isUser && (message.content || (message.media && message.media.length > 0)) && !isStreaming && (
           <div className="mt-2 flex flex-wrap items-center gap-1">
             {onRegenerate && (
               <button
