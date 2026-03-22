@@ -50,7 +50,7 @@ interface MediaItem {
 
 interface ChatMsg {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   media?: MediaItem[];
   isGenerating?: string | null; // 'image' | 'audio' | 'video' | null
@@ -418,7 +418,7 @@ export function AgentStudio() {
 
     // Build conversation history for context (excluding current user message - backend will add it)
     const conversationHistory = chatHistory.map(msg => ({
-      role: msg.role,
+      role: msg.role as 'user' | 'assistant' | 'system',
       content: msg.content,
     }));
 
@@ -938,9 +938,20 @@ export function AgentStudio() {
                               tr: ({ children }) => <tr className="border-t border-white/[0.06]">{children}</tr>,
                               th: ({ children }) => <th className="px-4 py-3 text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">{children}</th>,
                               td: ({ children }) => <td className="px-4 py-3 align-top text-white/78 break-words [overflow-wrap:anywhere]">{children}</td>,
-                              code: ({ inline, children }) => inline 
-                                ? <code className="px-1 py-0.5 rounded bg-white/[0.1] text-[11px] font-mono text-white/90">{children}</code>
-                                : <pre className="my-3 rounded-lg bg-[#0a0a0a] border border-white/[0.06] p-3 overflow-x-auto"><code className="text-[11px] font-mono text-white/80">{children}</code></pre>,
+                              code: ({ node, inline, className, children, ...props }: any) => {
+                const match = /language-(\w+)/.exec(className || '');
+                return !inline ? (
+                  <pre className="my-3 rounded-lg bg-[#0a0a0a] border border-white/[0.06] p-3 overflow-x-auto">
+                    <code className={className + ' text-[11px] font-mono text-white/80'} {...props}>
+                      {children}
+                    </code>
+                  </pre>
+                ) : (
+                  <code className="px-1 py-0.5 rounded bg-white/[0.1] text-[11px] font-mono text-white/90" {...props}>
+                    {children}
+                  </code>
+                );
+              },
                               strong: ({ children }) => <strong className="font-semibold text-white/95">{children}</strong>,
                               em: ({ children }) => <em className="italic text-white/80">{children}</em>,
                             }}
