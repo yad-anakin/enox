@@ -27,6 +27,9 @@ const sendMessageSchema = z.object({
     role: z.enum(['user', 'assistant', 'system']),
     content: z.string(),
   })).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  topP: z.number().min(0).max(1).optional(),
+  maxTokens: z.number().min(1).max(131072).optional(),
 });
 
 // Build a privacy-safe placeholder for attachments stored in DB
@@ -147,7 +150,13 @@ router.post('/send', async (req, res) => {
     // ── Build messages array (skip history fetch for new chats — nothing to fetch) ──
     const messages = [];
     let agentCreatorId = agent?.user_id || null;
-    if (agent?.system_prompt) {
+
+    // If conversationHistory is provided (agent studio), use it directly (includes system prompt)
+    // Otherwise fall back to the saved agent's system prompt from DB
+    const hasConversationHistory = body.conversationHistory && Array.isArray(body.conversationHistory) && body.conversationHistory.length > 0;
+    if (hasConversationHistory) {
+      messages.push(...body.conversationHistory);
+    } else if (agent?.system_prompt) {
       messages.push({ role: 'system', content: agent.system_prompt });
     }
 
@@ -159,12 +168,6 @@ router.post('/send', async (req, res) => {
     };
     // Privacy-safe DB content: placeholder + text (no binary data stored)
     const dbContent = buildAttachmentPlaceholder(body.attachments) + body.message;
-
-    // Handle conversation history for agent studio (when no chatId)
-    if (body.conversationHistory && Array.isArray(body.conversationHistory)) {
-      // Add conversation history (excluding system messages which are already handled)
-      messages.push(...body.conversationHistory.filter(msg => msg.role !== 'system'));
-    }
 
     if (isNewChat) {
       messages.push(userMsgForAI);
@@ -186,13 +189,16 @@ router.post('/send', async (req, res) => {
 
     console.log(`[chat] pre-stream setup: ${Date.now() - t0}ms`);
 
-    // Use agent settings if present, otherwise defaults
-    const temperature = agent?.temperature ?? 0.7;
-    const topP = agent?.top_p ?? 0.95;
+    // Use request overrides (agent studio) > agent settings > defaults
+    const temperature = body.temperature ?? agent?.temperature ?? 0.7;
+    const topP = body.topP ?? agent?.top_p ?? 0.95;
 
-    const maxTokens = agent?.max_tokens
-      ? Math.min(agent.max_tokens, 10000)
-      : Math.min(model.max_tokens || 4096, 10000);
+    const maxTokensLimit = body.useOwnKeys ? 131072 : 10000;
+    const maxTokens = body.maxTokens
+      ? Math.min(body.maxTokens, maxTokensLimit)
+      : agent?.max_tokens
+        ? Math.min(agent.max_tokens, maxTokensLimit)
+        : Math.min(model.max_tokens || 4096, maxTokensLimit);
 
     console.log(`[chat] SSE open, calling AI (${model.provider}/${model.model_id}): ${Date.now() - t0}ms`);
 

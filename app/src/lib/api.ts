@@ -58,6 +58,9 @@ export const chatAPI = {
     attachments?: { type: string; mimeType: string; data: string; name?: string }[];
     ttsVoice?: string;
     conversationHistory?: { role: string; content: string }[];
+    temperature?: number;
+    topP?: number;
+    maxTokens?: number;
   }) => {
     const headers = await getAuthHeaders();
     return fetch(`${API_URL}/api/chat/send`, {

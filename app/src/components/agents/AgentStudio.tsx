@@ -422,20 +422,23 @@ export function AgentStudio() {
       content: msg.content,
     }));
 
-    // Build the message payload
+    // Build the message payload — include all agent studio settings
     const messagePayload = {
       modelId: form.model_id,
       message: trimmed,
       useOwnKeys: form.use_own_key,
       conversationHistory,
+      temperature: form.temperature,
+      topP: form.top_p,
+      maxTokens: form.max_tokens,
       ...(selectedModelType === 'tts' ? { ttsVoice: form.tts_voice } : {}),
     };
 
     // Add system prompt to conversation history if present
-    if (appliedPrompt) {
+    if (form.system_prompt) {
       messagePayload.conversationHistory.unshift({
         role: 'system',
-        content: appliedPrompt
+        content: form.system_prompt
       });
     }
 
