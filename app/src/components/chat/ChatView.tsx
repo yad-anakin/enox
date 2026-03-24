@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import type { MediaItem } from '@/store/useStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -14,6 +14,69 @@ import { EnoxLogo } from '@/components/common/EnoxLogo';
 import { VoiceRecorder } from './VoiceRecorder';
 import { AttachmentPreview } from './AttachmentPreview';
 import type { Attachment } from './AttachmentPreview';
+
+const STARTER_PROMPTS = [
+  'Explain quantum computing simply',
+  'Write a Python web scraper',
+  'Compare React vs Vue pros/cons',
+  'Draft a professional email',
+  'Explain blockchain in simple terms',
+  'Write a regex for email validation',
+  'How does a neural network work?',
+  'Create a REST API with Node.js',
+  'Explain the theory of relativity',
+  'Write a SQL query for top 10 users',
+  'What are design patterns in OOP?',
+  'Build a to-do app with React',
+  'Explain TCP vs UDP differences',
+  'Write a bash script to backup files',
+  'How does garbage collection work?',
+  'Create a responsive CSS grid layout',
+  'Explain HTTPS and TLS handshake',
+  'Write a binary search in JavaScript',
+  'What is Docker and why use it?',
+  'Create a cron job explained simply',
+  'How do transformers work in AI?',
+  'Write a unit test with Jest',
+  'Explain git rebase vs merge',
+  'Build a CLI tool with Python',
+  'What is WebSocket and when to use it?',
+  'Write a sorting algorithm comparison',
+  'Explain microservices architecture',
+  'Create a JWT authentication flow',
+  'How does DNS resolution work?',
+  'Write a debounce function in JS',
+  'Explain NoSQL vs SQL databases',
+  'Build a markdown parser from scratch',
+  'What are Rust ownership rules?',
+  'Write a rate limiter in Node.js',
+  'Explain how a compiler works',
+  'Create an OAuth2 login flow',
+  'How does CSS Flexbox work?',
+  'Write a linked list in TypeScript',
+  'Explain event-driven architecture',
+  'Build a real-time chat with Socket.io',
+  'What is the CAP theorem?',
+  'Write a custom React hook',
+  'Explain Kubernetes in simple terms',
+  'Create a state machine example',
+  'How does HTTP/2 differ from HTTP/1.1?',
+  'Write a recursive tree traversal',
+  'Explain functional programming basics',
+  'Build a simple game with JavaScript',
+  'What are SOLID principles?',
+  'Write a GraphQL schema and resolver',
+  'Explain how CDNs work',
+  'Create a pub/sub messaging system',
+  'How does browser rendering work?',
+  'Write a promise-based queue in JS',
+  'Explain zero-knowledge proofs simply',
+  'Build a URL shortener backend',
+  'What is memoization and when to use it?',
+  'Write a middleware for Express.js',
+  'Explain MapReduce in simple terms',
+  'Create a drag-and-drop UI component',
+];
 
 const STATUS_TEXTS = [
   'Thinking...',
@@ -74,6 +137,12 @@ export function ChatView() {
     useOwnKeys: s.useOwnKeys, setRecentModelId: s.setRecentModelId,
     apiKeys: s.apiKeys, think: s.think, setThink: s.setThink, sidebarOpen: s.sidebarOpen, setSidebarOpen: s.setSidebarOpen,
   })));
+
+  // Pick 4 random starter prompts on mount
+  const starterPrompts = useMemo(() => {
+    const shuffled = [...STARTER_PROMPTS].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, 4);
+  }, []);
 
   // Local streaming content — avoids global store updates every flush cycle
   const [streamContent, setStreamContent] = useState('');
@@ -915,7 +984,7 @@ export function ChatView() {
                 <p className="text-sm text-white/30 text-center max-w-md">Start a conversation with AI. Select a model above or choose an agent to get specialized responses.</p>
               </motion.div>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="grid grid-cols-2 gap-3 max-w-lg w-full">
-                {['Explain quantum computing simply', 'Write a Python web scraper', 'Compare React vs Vue pros/cons', 'Draft a professional email'].map((prompt, i) => (
+                {starterPrompts.map((prompt, i) => (
                   <button key={i} onClick={() => { setInput(prompt); inputRef.current?.focus(); }} className="text-left p-3 rounded-xl glass hover:bg-white/[0.06] transition-all text-sm text-white/50 hover:text-white/70">{prompt}</button>
                 ))}
               </motion.div>
